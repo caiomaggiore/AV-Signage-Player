@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — AV Signage Player</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-logo">AV</div>
+      <h1>AV Signage Player</h1>
+      {% if first_access %}
+        <p class="login-subtitle">Primeiro acesso — configure sua senha</p>
+      {% else %}
+        <p class="login-subtitle">Acesso restrito</p>
+      {% endif %}
+    </div>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form action="/login" method="post">
+      <div class="form-group">
+        <label for="password">
+          {% if first_access %}Nova senha{% else %}Senha{% endif %}
+        </label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="{% if first_access %}Mínimo 6 caracteres{% else %}Digite sua senha{% endif %}"
+          required
+          autofocus
+        >
+      </div>
+
+      {% if first_access %}
+      <div class="form-group">
+        <label for="password_confirm">Confirmar senha</label>
+        <input
+          type="password"
+          id="password_confirm"
+          name="password_confirm"
+          placeholder="Repita a senha"
+          required
+        >
+      </div>
+      {% endif %}
+
+      <button type="submit" class="btn btn-primary btn-full">
+        {% if first_access %}Definir senha e entrar{% else %}Entrar{% endif %}
+      </button>
+    </form>
+
+    <div class="login-footer">
+      <span class="text-muted">{{ hostname if hostname else "signage-maggiore" }}</span>
+    </div>
+  </div>
+</body>
+</html>

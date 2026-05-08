@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block title %}Mídias — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Mídias</h2>
+  <span class="text-muted" style="font-size:13px">{{ free_gb }} GB livres em disco</span>
+</div>
+
+{% if msg %}
+  <div class="alert alert-success">{{ msg }}</div>
+{% endif %}
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<!-- Player controls -->
+<div class="section" id="player-section">
+  <h3>Player</h3>
+  <div id="player-status-bar">
+    {% if player.playing %}
+      <p>Reproduzindo: <strong>{{ player.current_file }}</strong>
+        &nbsp;<span class="badge badge-success">AO VIVO</span>
+      </p>
+    {% else %}
+      <p class="text-muted">Nenhuma mídia em reprodução.</p>
+    {% endif %}
+  </div>
+  <div class="btn-group" style="margin-top:10px">
+    <button class="btn btn-danger" id="btn-stop" onclick="playerStop()" {% if not player.playing %}disabled{% endif %}>
+      Parar
+    </button>
+    <button class="btn btn-secondary" id="btn-restart" onclick="playerRestart()" {% if not player.playing %}disabled{% endif %}>
+      Reiniciar
+    </button>
+    <button class="btn btn-secondary" id="btn-loop" onclick="toggleLoop()">
+      Loop: <strong id="loop-state">{{ 'Ligado' if player.loop else 'Desligado' }}</strong>
+    </button>
+  </div>
+</div>
+
+<!-- Upload -->
+<div class="section">
+  <h3>Enviar novo vídeo</h3>
+  <form id="upload-form" enctype="multipart/form-data">
+    <div class="form-group">
+      <label>Arquivo (.mp4, .mov, .mkv)</label>
+      <input type="file" id="upload-file" name="file" accept=".mp4,.mov,.mkv" required>
+    </div>
+    <div id="upload-progress" style="display:none; margin-bottom:12px">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <span id="progress-label" class="text-muted" style="font-size:13px">Enviando...</span>
+    </div>
+    <button type="submit" class="btn btn-primary">Enviar</button>
+  </form>
+</div>
+
+<!-- Lista de mídias -->
+<div class="section">
+  <h3>Arquivos locais</h3>
+  {% if files %}
+  <table class="media-table">
+    <thead>
+      <tr><th>Nome</th><th>Tamanho</th><th>Ações</th></tr>
+    </thead>
+    <tbody id="media-list">
+      {% for f in files %}
+      <tr id="row-{{ loop.index }}">
+        <td class="mono">{{ f.name }}</td>
+        <td class="text-muted">{{ f.size_mb }} MB</td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-primary btn-sm" onclick="playMedia('{{ f.name }}')">Play</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteMedia('{{ f.name }}', this)">Remover</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted">Nenhum vídeo encontrado. Faça o upload acima.</p>
+  {% endif %}
+</div>
+
+<script>
+let loopEnabled = {{ 'true' if player.loop else 'false' }};
+
+async function playerStop() {
+  const r = await fetch('/api/player/stop', {method:'POST'});
+  if (r.ok) updatePlayerUI(await r.json());
+}
+
+async function playerRestart() {
+  const r = await fetch('/api/player/restart', {method:'POST'});
+  if (r.ok) updatePlayerUI(await r.json());
+}
+
+async function toggleLoop() {
+  loopEnabled = !loopEnabled;
+  const r = await fetch('/api/player/loop', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({enabled: loopEnabled})
+  });
+  if (r.ok) updatePlayerUI(await r.json());
+}
+
+async function playMedia(filename) {
+  const r = await fetch('/api/player/play', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({filename, loop: loopEnabled})
+  });
+  if (r.ok) updatePlayerUI(await r.json());
+  else {
+    const e = await r.json();
+    alert('Erro: ' + e.error);
+  }
+}
+
+function updatePlayerUI(data) {
+  loopEnabled = data.loop;
+  document.getElementById('loop-state').textContent = data.loop ? 'Ligado' : 'Desligado';
+  const bar = document.getElementById('player-status-bar');
+  const btnStop = document.getElementById('btn-stop');
+  const btnRestart = document.getElementById('btn-restart');
+  if (data.playing) {
+    bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong> &nbsp;<span class="badge badge-success">AO VIVO</span></p>`;
+    btnStop.disabled = false;
+    btnRestart.disabled = false;
+  } else {
+    bar.innerHTML = `<p class="text-muted">Nenhuma mídia em reprodução.</p>`;
+    btnStop.disabled = true;
+    btnRestart.disabled = true;
+  }
+}
+
+async function deleteMedia(filename, btn) {
+  if (!confirm(`Remover "${filename}"?`)) return;
+  btn.disabled = true;
+  const r = await fetch('/api/media/' + encodeURIComponent(filename), {method:'DELETE'});
+  if (r.ok) {
+    btn.closest('tr').remove();
+  } else {
+    const e = await r.json();
+    alert('Erro: ' + e.error);
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('upload-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fileInput = document.getElementById('upload-file');
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const progressDiv = document.getElementById('upload-progress');
+  const progressFill = document.getElementById('progress-fill');
+  const progressLabel = document.getElementById('progress-label');
+  progressDiv.style.display = 'block';
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/media/upload');
+
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      progressFill.style.width = pct + '%';
+      progressLabel.textContent = `Enviando... ${pct}%`;
+    }
+  };
+
+  xhr.onload = function() {
+    progressDiv.style.display = 'none';
+    if (xhr.status === 200) {
+      const data = JSON.parse(xhr.responseText);
+      progressLabel.textContent = 'Enviado!';
+      // Adiciona linha na tabela sem reload
+      const tbody = document.getElementById('media-list');
+      if (tbody) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${data.filename}</td>
+          <td class="text-muted">${data.size_mb} MB</td>
+          <td>
+            <div class="btn-group">
+              <button class="btn btn-primary btn-sm" onclick="playMedia('${data.filename}')">Play</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteMedia('${data.filename}', this)">Remover</button>
+            </div>
+          </td>`;
+        tbody.appendChild(tr);
+      } else {
+        window.location.reload();
+      }
+      fileInput.value = '';
+    } else {
+      try {
+        const err = JSON.parse(xhr.responseText);
+        alert('Erro no upload: ' + err.error);
+      } catch {
+        alert('Erro no upload.');
+      }
+    }
+  };
+
+  xhr.onerror = function() {
+    progressDiv.style.display = 'none';
+    alert('Erro de conexão no upload.');
+  };
+
+  xhr.send(formData);
+});
+</script>
+{% endblock %}

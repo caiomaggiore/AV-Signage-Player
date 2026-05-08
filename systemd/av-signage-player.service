@@ -1,0 +1,25 @@
+[Unit]
+Description=AV Signage Player
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/opt/av-signage
+ExecStart=/opt/av-signage/venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/av-signage/logs/app.log
+StandardError=append:/opt/av-signage/logs/app.log
+
+# Acesso ao framebuffer/DRM para o player de vídeo
+SupplementaryGroups=video render
+
+# Variáveis de ambiente
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/av-signage
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Rede — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Configurações de Rede</h2>
+</div>
+
+{% if msg %}
+  <div class="alert alert-success" id="flash-msg">{{ msg }}</div>
+{% endif %}
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div id="api-error" class="alert alert-error" style="display:none"></div>
+<div id="api-success" class="alert alert-success" style="display:none"></div>
+
+<form id="network-form">
+  <!-- Nome do dispositivo -->
+  <div class="section">
+    <h3>Identificação</h3>
+    <div class="form-group">
+      <label>Nome de apresentação</label>
+      <input type="text" name="display_name" value="{{ display_name }}" placeholder="Ex: Recepção 01">
+      <span class="field-hint">Exibido na interface e no servidor.</span>
+    </div>
+    <div class="form-group">
+      <label>Nome técnico do dispositivo</label>
+      <input type="text" id="device_name" name="device_name" value="{{ device_name }}" placeholder="Ex: recepcao-01" oninput="updateHostnamePreview()">
+      <span class="field-hint">Usado no hostname e no endereço .local. Sem espaços ou acentos.</span>
+    </div>
+    <div class="hostname-preview" id="hostname-preview">
+      URL: <strong id="hostname-preview-val">http://{{ hostname }}.local</strong>
+    </div>
+  </div>
+
+  <!-- Modo de rede -->
+  <div class="section">
+    <h3>Modo de rede</h3>
+    <div class="btn-group" style="margin-bottom:20px">
+      <button type="button" class="btn {% if network_mode == 'dhcp' %}btn-primary{% else %}btn-secondary{% endif %}" id="btn-dhcp" onclick="setMode('dhcp')">DHCP (automático)</button>
+      <button type="button" class="btn {% if network_mode == 'static' %}btn-primary{% else %}btn-secondary{% endif %}" id="btn-static" onclick="setMode('static')">IP fixo</button>
+    </div>
+    <input type="hidden" name="mode" id="net-mode" value="{{ network_mode }}">
+
+    <div id="static-fields" style="display:{{ 'block' if network_mode == 'static' else 'none' }}">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Endereço IP</label>
+          <input type="text" name="ip" value="{{ ip }}" placeholder="192.168.1.100">
+        </div>
+        <div class="form-group">
+          <label>Máscara de sub-rede</label>
+          <input type="text" name="mask" value="{{ mask or '255.255.255.0' }}" placeholder="255.255.255.0">
+        </div>
+        <div class="form-group">
+          <label>Gateway</label>
+          <input type="text" name="gateway" value="{{ gateway }}" placeholder="192.168.1.1">
+        </div>
+        <div class="form-group">
+          <label>DNS primário</label>
+          <input type="text" name="dns1" value="{{ dns[0] if dns|length > 0 else '' }}" placeholder="8.8.8.8">
+        </div>
+        <div class="form-group">
+          <label>DNS secundário</label>
+          <input type="text" name="dns2" value="{{ dns[1] if dns|length > 1 else '' }}" placeholder="8.8.4.4">
+        </div>
+      </div>
+      <div class="alert alert-error" style="font-size:13px; padding:10px 14px; margin-top:4px">
+        Ao alterar o IP, o dispositivo será reiniciado. Reconnecte pelo novo endereço ou pelo nome .local.
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-group">
+    <button type="submit" class="btn btn-primary" id="save-btn">Salvar e aplicar</button>
+    <a href="/dashboard" class="btn btn-secondary">Cancelar</a>
+  </div>
+</form>
+
+<script>
+function setMode(mode) {
+  document.getElementById('net-mode').value = mode;
+  document.getElementById('static-fields').style.display = mode === 'static' ? 'block' : 'none';
+  document.getElementById('btn-dhcp').className = 'btn ' + (mode === 'dhcp' ? 'btn-primary' : 'btn-secondary');
+  document.getElementById('btn-static').className = 'btn ' + (mode === 'static' ? 'btn-primary' : 'btn-secondary');
+}
+
+function updateHostnamePreview() {
+  const val = document.getElementById('device_name').value.trim();
+  const slug = val
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const hostname = slug ? `signage-${slug}` : 'signage-maggiore';
+  document.getElementById('hostname-preview-val').textContent = `http://${hostname}.local`;
+}
+
+document.getElementById('network-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = document.getElementById('save-btn');
+  const errDiv = document.getElementById('api-error');
+  const okDiv = document.getElementById('api-success');
+  errDiv.style.display = 'none';
+  okDiv.style.display = 'none';
+
+  const mode = document.getElementById('net-mode').value;
+  const payload = {
+    mode,
+    display_name: form.display_name.value.trim(),
+    device_name: form.device_name.value.trim(),
+  };
+
+  if (mode === 'static') {
+    payload.ip = form.ip.value.trim();
+    payload.mask = form.mask.value.trim();
+    payload.gateway = form.gateway.value.trim();
+    payload.dns = [form.dns1.value.trim(), form.dns2.value.trim()].filter(Boolean);
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Aplicando...';
+
+  try {
+    const r = await fetch('/api/network/apply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      if (data.reboot_required) {
+        okDiv.textContent = `Configuração aplicada! O dispositivo será reiniciado. Reconnecte por http://${data.hostname}.local após ~30s.`;
+        okDiv.style.display = 'block';
+        setTimeout(() => {
+          fetch('/api/system/reboot', {method:'POST'});
+        }, 3000);
+      } else {
+        okDiv.textContent = `Configuração salva. Novo endereço: http://${data.hostname}.local`;
+        okDiv.style.display = 'block';
+      }
+    } else {
+      errDiv.textContent = data.error || 'Erro ao aplicar configuração.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Salvar e aplicar';
+});
+</script>
+{% endblock %}

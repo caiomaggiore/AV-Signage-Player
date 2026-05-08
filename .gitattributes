@@ -1,0 +1,14 @@
+* text=auto
+
+# Scripts shell sempre com LF (Linux)
+*.sh text eol=lf
+*.service text eol=lf
+
+# Python e web com LF
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.md text eol=lf

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>{{ display_name }}</h2>
+  <span class="badge badge-{{ 'success' if player_status == 'playing' else 'neutral' }}">
+    {{ 'Reproduzindo' if player_status == 'playing' else 'Parado' }}
+  </span>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Hostname</div>
+    <div class="stat-value"><a href="http://{{ hostname }}.local">{{ hostname }}.local</a></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Endereço IP</div>
+    <div class="stat-value">{{ ip }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">MAC</div>
+    <div class="stat-value mono">{{ mac }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Rede</div>
+    <div class="stat-value">{{ network_mode | upper }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Temperatura</div>
+    <div class="stat-value">{{ cpu_temp }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Disco livre</div>
+    <div class="stat-value">{{ disk.free_gb }} GB <span class="text-muted">({{ disk.percent_used }}% usado)</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Uptime</div>
+    <div class="stat-value">{{ uptime }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Versão</div>
+    <div class="stat-value">{{ software_version }}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Player</h3>
+  <div class="player-status">
+    {% if last_media %}
+      <p>Arquivo atual: <strong>{{ last_media }}</strong></p>
+    {% else %}
+      <p class="text-muted">Nenhuma mídia selecionada.</p>
+    {% endif %}
+    <div class="btn-group">
+      <a href="/media" class="btn btn-primary">Gerenciar Mídias</a>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Servidor</h3>
+  {% if paired %}
+    <p class="badge badge-success">Pareado com servidor</p>
+  {% else %}
+    <p class="text-muted">Não pareado.
+      Código de pareamento: <strong class="mono">{{ pairing_code }}</strong>
+    </p>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h3>Hardware</h3>
+  <p class="text-muted">{{ hardware_model }} &nbsp;·&nbsp; ID: <span class="mono">{{ device_id }}</span></p>
+</div>
+{% endblock %}

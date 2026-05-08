@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Configurações — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Configurações</h2>
+</div>
+
+{% if msg %}
+  <div class="alert alert-success">{{ msg }}</div>
+{% endif %}
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<!-- Reboot -->
+<div class="section">
+  <h3>Sistema</h3>
+  <p class="text-muted" style="margin-bottom:12px">Reinicia o Raspberry Pi. A interface ficará indisponível por cerca de 30 segundos.</p>
+  <button class="btn btn-secondary" onclick="confirmReboot()">Reiniciar dispositivo</button>
+</div>
+
+<!-- Reset de configuração -->
+<div class="section">
+  <h3>Reset de configuração</h3>
+  <p class="text-muted" style="margin-bottom:4px">Restaura as configurações de fábrica <strong>sem apagar as mídias</strong>.</p>
+  <p class="text-muted" style="margin-bottom:12px; font-size:13px">Remove: nome do dispositivo, configuração de rede, senha, pareamento com servidor.</p>
+  <div class="reset-warning">
+    <span class="badge badge-warning">Atenção</span>
+    <span class="text-muted" style="font-size:13px; margin-left:8px">Esta ação é irreversível. Os vídeos serão preservados.</span>
+  </div>
+  <button class="btn btn-danger" style="margin-top:12px" onclick="confirmReset()">Resetar configuração</button>
+</div>
+
+<!-- Factory reset -->
+<div class="section">
+  <h3>Factory reset</h3>
+  <p class="text-muted" style="margin-bottom:4px">Apaga <strong>tudo</strong> — configurações e mídias.</p>
+  <p class="text-muted" style="margin-bottom:12px; font-size:13px">O dispositivo voltará ao estado de recém-instalado.</p>
+  <div class="reset-warning">
+    <span class="badge badge-danger">Perigo</span>
+    <span class="text-muted" style="font-size:13px; margin-left:8px">Esta ação apaga todos os vídeos. Não pode ser desfeita.</span>
+  </div>
+  <button class="btn btn-danger" style="margin-top:12px" onclick="confirmFactory()">Factory reset completo</button>
+</div>
+
+<!-- Modal de confirmação -->
+<div id="confirm-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-card">
+    <h3 id="modal-title" style="margin-bottom:8px; color:var(--text)">Confirmar ação</h3>
+    <p id="modal-body" class="text-muted" style="margin-bottom:20px; font-size:14px"></p>
+    <div class="form-group">
+      <label id="modal-label" style="font-size:13px"></label>
+      <input type="text" id="modal-input" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="modal-error" class="alert alert-error" style="display:none"></div>
+    <div class="btn-group">
+      <button class="btn btn-danger" id="modal-confirm-btn" onclick="executeAction()">Confirmar</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentAction = null;
+
+function confirmReboot() {
+  if (confirm('Reiniciar o dispositivo agora?\nA interface ficará indisponível por ~30 segundos.')) {
+    fetch('/api/system/reboot', {method:'POST'})
+      .then(() => {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#6b7280;font-family:sans-serif"><p>Reiniciando... Aguarde 30 segundos.</p></div>';
+        setTimeout(() => window.location.href = '/', 35000);
+      });
+  }
+}
+
+function confirmReset() {
+  currentAction = 'reset';
+  document.getElementById('modal-title').textContent = 'Reset de configuração';
+  document.getElementById('modal-body').textContent = 'Os vídeos serão preservados. Configurações, senha e pareamento serão removidos.';
+  document.getElementById('modal-label').textContent = 'Digite RESET para confirmar:';
+  document.getElementById('modal-input').value = '';
+  document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('confirm-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('modal-input').focus(), 100);
+}
+
+function confirmFactory() {
+  currentAction = 'factory';
+  document.getElementById('modal-title').textContent = 'Factory reset completo';
+  document.getElementById('modal-body').textContent = 'TODOS os dados serão apagados, incluindo os vídeos. O dispositivo voltará ao estado inicial.';
+  document.getElementById('modal-label').textContent = 'Digite FACTORY para confirmar:';
+  document.getElementById('modal-input').value = '';
+  document.getElementById('modal-error').style.display = 'none';
+  document.getElementById('confirm-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('modal-input').focus(), 100);
+}
+
+function closeModal() {
+  document.getElementById('confirm-modal').style.display = 'none';
+  currentAction = null;
+}
+
+async function executeAction() {
+  const input = document.getElementById('modal-input').value.trim();
+  const errDiv = document.getElementById('modal-error');
+  const btn = document.getElementById('modal-confirm-btn');
+
+  let url, expectedConfirm;
+  if (currentAction === 'reset') {
+    url = '/api/system/reset';
+    expectedConfirm = 'RESET';
+  } else {
+    url = '/api/system/factory';
+    expectedConfirm = 'FACTORY';
+  }
+
+  if (input !== expectedConfirm) {
+    errDiv.textContent = `Digite exatamente "${expectedConfirm}" para confirmar.`;
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Executando...';
+
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: expectedConfirm})
+    });
+    const data = await r.json();
+    if (data.ok) {
+      closeModal();
+      window.location.href = '/login?msg=reset_ok';
+    } else {
+      errDiv.textContent = data.error || 'Erro desconhecido.';
+      errDiv.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Confirmar';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Confirmar';
+  }
+}
+
+document.getElementById('modal-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') executeAction();
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+{% endblock %}

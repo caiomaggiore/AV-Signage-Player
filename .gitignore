@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+venv/
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/*.log
+*.log
+
+# Config de usuário (dados sensíveis)
+config/auth.json
+config/user_config.json
+config/pending_config.json
+config/identity.json
+config/pairing.json
+
+# Mídias (não versionar arquivos de vídeo)
+media/local/
+media/server/
+media/cache/
+media/downloading/
+
+# Scripts temporários
+scripts/fix_hosts.py
+scripts/etc_hosts
+scripts/test_network.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,37 @@
+{
+  "product_name": "AV Signage Player",
+  "default_display_name": "Unconfigured Signage Player",
+  "default_device_name": "maggiore",
+  "hostname_prefix": "signage",
+  "default_hostname": "signage-maggiore",
+  "local_web_port": 8080,
+  "network": {
+    "mode": "dhcp",
+    "ip": "",
+    "mask": "",
+    "gateway": "",
+    "dns": []
+  },
+  "server": {
+    "enabled": false,
+    "url": ""
+  },
+  "media": {
+    "local_path": "/opt/av-signage/media/local",
+    "server_path": "/opt/av-signage/media/server",
+    "cache_path": "/opt/av-signage/media/cache",
+    "download_path": "/opt/av-signage/media/downloading",
+    "allowed_extensions": [".mp4", ".mov", ".mkv"],
+    "max_upload_mb": 2048
+  },
+  "player": {
+    "engine": "mpv",
+    "loop_default": true,
+    "fullscreen": true
+  },
+  "auth": {
+    "session_timeout_minutes": 60,
+    "max_login_attempts": 5,
+    "lockout_minutes": 15
+  }
+}

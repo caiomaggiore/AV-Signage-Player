@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}AV Signage Player{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  {% block nav %}
+  <nav>
+    <span class="nav-brand">AV Signage Player</span>
+    <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/media">Mídias</a>
+      <a href="/network">Rede</a>
+      <a href="/settings">Sistema</a>
+      <form action="/logout" method="post" style="display:inline">
+        <button type="submit" class="btn-link">Sair</button>
+      </form>
+    </div>
+  </nav>
+  {% endblock %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
