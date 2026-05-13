@@ -12,6 +12,18 @@ logger = logging.getLogger(__name__)
 
 MEDIA_DIR = Path("/opt/av-signage/media/local")
 
+ROTATION_DEGREES = {"normal": 0, "right": 90, "left": 270}
+
+
+def _get_rotation() -> int:
+    """Retorna os graus de rotação configurados. 0 se não configurado."""
+    try:
+        from app.config_service import config_service
+        r = config_service.config.player.display_rotation
+        return ROTATION_DEGREES.get(r, 0)
+    except Exception:
+        return 0
+
 
 class PlayerService:
     def __init__(self) -> None:
@@ -46,13 +58,18 @@ class PlayerService:
         if loop is not None:
             self._loop = loop
 
+        rotation = _get_rotation()
         cmd = [
             "mpv",
             "--fs",
             "--no-border",
             "--no-osc",
             "--no-input-terminal",
+            "--vo=drm",
+            "--drm-device=/dev/dri/card1",
+            "--hwdec=no",
             f"--loop-file={'inf' if self._loop else 'no'}",
+            f"--video-rotate={rotation}",
             str(path),
         ]
 
@@ -65,7 +82,7 @@ class PlayerService:
             stderr=subprocess.DEVNULL,
         )
         self._current_file = filename
-        logger.info("Reproduzindo: %s (loop=%s)", filename, self._loop)
+        logger.info("Reproduzindo: %s (loop=%s, rotation=%s°)", filename, self._loop, rotation)
 
     def stop(self, show_status: bool = True) -> None:
         """Para a reprodução e opcionalmente exibe tela de status."""

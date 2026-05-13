@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path("/opt/av-signage")
 CONFIG_DIR = BASE_DIR / "config"
 MEDIA_LOCAL = BASE_DIR / "media" / "local"
+MEDIA_FACTORY = BASE_DIR / "media" / "factory"
+MEDIA_BACKUP = BASE_DIR / "media" / "backup"
 MEDIA_SERVER = BASE_DIR / "media" / "server"
 MEDIA_CACHE = BASE_DIR / "media" / "cache"
 MEDIA_DOWNLOADING = BASE_DIR / "media" / "downloading"
@@ -24,6 +26,56 @@ USER_CONFIG_FILES = [
     CONFIG_DIR / "pairing.json",
     CONFIG_DIR / "auth.json",
 ]
+
+
+def _backup_user_media() -> dict:
+    """Copia todas as mídias de media/local para media/backup antes do factory reset.
+
+    Mantém apenas o backup mais recente para não consumir disco desnecessariamente.
+    Retorna dict com contagem e caminho do backup criado.
+    """
+    import time
+
+    if not MEDIA_LOCAL.exists():
+        return {"backed_up": 0, "backup_path": None}
+
+    files = [f for f in MEDIA_LOCAL.iterdir() if f.is_file() and f.stat().st_size > 0]
+    if not files:
+        return {"backed_up": 0, "backup_path": None}
+
+    timestamp = int(time.time())
+    backup_dir = MEDIA_BACKUP / str(timestamp)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in files:
+        shutil.copy2(src, backup_dir / src.name)
+
+    # Remover backups antigos — manter apenas o último
+    all_backups = sorted(
+        (d for d in MEDIA_BACKUP.iterdir() if d.is_dir()),
+        key=lambda d: d.name,
+    )
+    for old in all_backups[:-1]:
+        shutil.rmtree(old, ignore_errors=True)
+
+    logger.info("Backup de %d mídias criado em %s", len(files), backup_dir)
+    return {"backed_up": len(files), "backup_path": str(backup_dir)}
+
+
+def _restore_factory_media(overwrite: bool = False) -> int:
+    """Copia vídeos de fábrica para media/local. Se overwrite=True, substitui existentes."""
+    if not MEDIA_FACTORY.exists():
+        return 0
+    MEDIA_LOCAL.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for src in MEDIA_FACTORY.iterdir():
+        if src.is_file():
+            dest = MEDIA_LOCAL / src.name
+            if overwrite or not dest.exists():
+                shutil.copy2(src, dest)
+                count += 1
+                logger.info("Mídia de fábrica restaurada: %s", src.name)
+    return count
 
 
 def _clear_dir(path: Path) -> int:
@@ -84,12 +136,16 @@ def reset_config(stop_player_fn=None) -> dict:
     except Exception as e:
         logger.warning("Não foi possível restaurar hostname: %s", e)
 
-    logger.info("Reset de configuração concluído. Removidos: %s", removed)
+    # Restaurar mídias de fábrica que o usuário possa ter removido (sem sobrescrever existentes)
+    restored_media = _restore_factory_media(overwrite=False)
+
+    logger.info("Reset de configuração concluído. Removidos: %s. Mídias de fábrica restauradas: %d.", removed, restored_media)
     return {
         "ok": True,
         "type": "reset_config",
         "removed_files": removed,
         "media_preserved": True,
+        "factory_media_restored": restored_media,
     }
 
 
@@ -123,6 +179,9 @@ def factory_reset(stop_player_fn=None) -> dict:
         if _remove_file(f):
             removed_files.append(f.name)
 
+    # Backup antes de apagar — permite recuperação manual em caso de factory reset acidental
+    backup_result = _backup_user_media()
+
     removed_media = 0
     for media_dir in [MEDIA_LOCAL, MEDIA_SERVER, MEDIA_CACHE, MEDIA_DOWNLOADING]:
         removed_media += _clear_dir(media_dir)
@@ -134,12 +193,23 @@ def factory_reset(stop_player_fn=None) -> dict:
     except Exception as e:
         logger.warning("Não foi possível restaurar hostname: %s", e)
 
-    logger.info("Factory reset concluído. Arquivos config removidos: %s. Mídias removidas: %d.", removed_files, removed_media)
+    # Sempre restaurar mídias de fábrica após factory reset
+    restored_media = _restore_factory_media(overwrite=True)
+
+    logger.info(
+        "Factory reset concluído. Config removidos: %s. Mídias removidas: %d. "
+        "Backup: %d arquivos em %s. Fábrica restaurada: %d.",
+        removed_files, removed_media,
+        backup_result["backed_up"], backup_result["backup_path"],
+        restored_media,
+    )
     return {
         "ok": True,
         "type": "factory_reset",
         "removed_files": removed_files,
         "removed_media_count": removed_media,
+        "backup": backup_result,
+        "factory_media_restored": restored_media,
     }
 
 

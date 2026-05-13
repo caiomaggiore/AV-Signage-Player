@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -18,15 +19,20 @@ def _ensure_dir() -> None:
 
 
 def list_media() -> List[dict]:
-    """Retorna lista de arquivos de mídia com nome e tamanho."""
+    """Retorna lista de arquivos de mídia com nome, tamanho e data de modificação."""
     _ensure_dir()
     files = []
     for f in sorted(MEDIA_DIR.iterdir()):
         if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS:
-            size = f.stat().st_size
+            stat = f.stat()
+            modified_ts = stat.st_mtime
+            modified_str = datetime.fromtimestamp(modified_ts).strftime("%d/%m/%Y %H:%M")
             files.append({
                 "name": f.name,
-                "size_mb": round(size / 1_048_576, 1),
+                "size_mb": round(stat.st_size / 1_048_576, 1),
+                "size_bytes": stat.st_size,
+                "modified_ts": modified_ts,
+                "modified_str": modified_str,
                 "path": str(f),
             })
     return files
@@ -50,7 +56,10 @@ def save_upload(filename: str, data: bytes) -> Path:
     _ensure_dir()
 
     if not validate_extension(filename):
-        raise ValueError(f"Extensão não permitida. Use: {', '.join(ALLOWED_EXTENSIONS)}")
+        raise ValueError(f"Extensão não permitida. Use: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+    if len(data) == 0:
+        raise ValueError("Arquivo vazio. O upload não contém dados.")
 
     if len(data) > MAX_UPLOAD_BYTES:
         raise ValueError("Arquivo excede o tamanho máximo de 2 GB.")

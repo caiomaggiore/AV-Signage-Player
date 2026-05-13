@@ -19,7 +19,7 @@ def _generate_image(
     pairing_code: str,
     version: str,
 ) -> bool:
-    """Gera PNG de status usando Pillow. Retorna True se gerou com sucesso."""
+    """Gera PNG de status em paisagem (1920×1080). Retorna True se gerou com sucesso."""
     try:
         from PIL import Image, ImageDraw, ImageFont
 
@@ -29,6 +29,7 @@ def _generate_image(
         TEXT = (232, 234, 240)
         MUTED = (107, 114, 128)
         WHITE = (255, 255, 255)
+        SEP = (45, 50, 80)
 
         img = Image.new("RGB", (W, H), BG)
         draw = ImageDraw.Draw(img)
@@ -43,47 +44,32 @@ def _generate_image(
         font_label = load_font(FONT_PATH, 26)
         font_value = load_font(FONT_BOLD, 32)
         font_small = load_font(FONT_PATH, 22)
-        font_code = load_font(FONT_BOLD, 72)
-        font_url = load_font(FONT_PATH, 30)
+        font_code  = load_font(FONT_BOLD, 72)
+        font_url   = load_font(FONT_PATH, 30)
 
         cx = W // 2
 
-        # Logo / título
         draw.text((cx, 160), "AV Signage Player", font=font_title, fill=ACCENT, anchor="mm")
+        draw.text((cx, 240), display_name,        font=font_label, fill=MUTED,  anchor="mm")
+        draw.line([(cx - 300, 290), (cx + 300, 290)], fill=SEP, width=1)
 
-        # Nome de apresentação
-        draw.text((cx, 240), display_name, font=font_label, fill=MUTED, anchor="mm")
+        col1_x, col2_x = W // 4, W * 3 // 4
+        row1_y, row2_y = 370, 480
 
-        # Separador
-        draw.line([(cx - 300, 290), (cx + 300, 290)], fill=(45, 50, 80), width=1)
+        draw.text((col1_x, row1_y - 28), "ENDEREÇO IP",       font=font_small, fill=MUTED, anchor="mm")
+        draw.text((col1_x, row1_y + 10), ip,                  font=font_value, fill=TEXT,  anchor="mm")
+        draw.text((col2_x, row1_y - 28), "HOSTNAME",          font=font_small, fill=MUTED, anchor="mm")
+        draw.text((col2_x, row1_y + 10), f"{hostname}.local", font=font_value, fill=TEXT,  anchor="mm")
 
-        # Grid de info
-        col1_x = W // 4
-        col2_x = W * 3 // 4
-        row1_y = 370
-        row2_y = 480
+        draw.text((cx, row2_y - 28), "ACESSE PELO NAVEGADOR",         font=font_small, fill=MUTED,  anchor="mm")
+        draw.text((cx, row2_y + 10), f"http://{hostname}.local:8080", font=font_url,   fill=ACCENT, anchor="mm")
 
-        # IP
-        draw.text((col1_x, row1_y - 28), "ENDEREÇO IP", font=font_small, fill=MUTED, anchor="mm")
-        draw.text((col1_x, row1_y + 10), ip, font=font_value, fill=TEXT, anchor="mm")
+        draw.line([(cx - 300, 560), (cx + 300, 560)], fill=SEP, width=1)
 
-        # Hostname
-        draw.text((col2_x, row1_y - 28), "HOSTNAME", font=font_small, fill=MUTED, anchor="mm")
-        draw.text((col2_x, row1_y + 10), f"{hostname}.local", font=font_value, fill=TEXT, anchor="mm")
-
-        # URL de acesso
-        draw.text((cx, row2_y - 28), "ACESSE PELO NAVEGADOR", font=font_small, fill=MUTED, anchor="mm")
-        draw.text((cx, row2_y + 10), f"http://{hostname}.local:8080", font=font_url, fill=ACCENT, anchor="mm")
-
-        # Separador
-        draw.line([(cx - 300, 560), (cx + 300, 560)], fill=(45, 50, 80), width=1)
-
-        # Código de pareamento
-        draw.text((cx, 620), "CÓDIGO DE PAREAMENTO", font=font_small, fill=MUTED, anchor="mm")
-        draw.text((cx, 710), pairing_code, font=font_code, fill=WHITE, anchor="mm")
+        draw.text((cx, 620), "CÓDIGO DE PAREAMENTO",                         font=font_small, fill=MUTED, anchor="mm")
+        draw.text((cx, 710), pairing_code,                                   font=font_code,  fill=WHITE, anchor="mm")
         draw.text((cx, 775), "Use este código para conectar ao servidor central", font=font_small, fill=MUTED, anchor="mm")
 
-        # Versão
         draw.text((cx, H - 60), f"v{version}  ·  {hostname}", font=font_small, fill=(50, 55, 75), anchor="mm")
 
         STATUS_IMAGE.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +106,7 @@ class ScreenService:
         pairing_code: str,
         version: str = "0.1.0",
     ) -> None:
-        """Gera a imagem de status e exibe no HDMI via mpv."""
+        """Gera a imagem de status em paisagem (1920×1080) e exibe no HDMI via mpv."""
         self._kill()
 
         if not _generate_image(display_name, hostname, ip, pairing_code, version):
@@ -133,6 +119,9 @@ class ScreenService:
             "--no-border",
             "--no-osc",
             "--no-input-terminal",
+            "--vo=drm",
+            "--drm-device=/dev/dri/card1",
+            "--hwdec=no",
             "--image-display-duration=inf",
             "--loop-file=inf",
             str(STATUS_IMAGE),
