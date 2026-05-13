@@ -92,9 +92,18 @@
       <input type="text" id="pl-name" placeholder="Ex: Recepção Principal" autocomplete="off">
     </div>
 
-    <div class="form-group" style="display:flex; align-items:center; gap:12px">
-      <input type="checkbox" id="pl-loop" checked style="width:auto">
-      <label for="pl-loop" style="margin:0; font-size:14px">Loop (repetir ao terminar)</label>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="pl-loop" checked style="width:auto">
+        <label for="pl-loop" style="margin:0;font-size:14px">Loop</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="margin:0;font-size:14px;color:var(--text-muted)">Transição:</label>
+        <select id="pl-transition" style="width:auto;padding:6px 10px">
+          <option value="cut">Corte direto</option>
+          <option value="fade">Fade to black</option>
+        </select>
+      </div>
     </div>
 
     <div class="form-group">
@@ -119,9 +128,9 @@
 
     <div id="modal-error" class="alert alert-error" style="display:none"></div>
 
-    <div class="btn-group" style="margin-top:8px">
-      <button class="btn btn-primary" onclick="savePlaylist()">Salvar</button>
+    <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePlaylist()">Salvar</button>
     </div>
   </div>
 </div>
@@ -175,6 +184,7 @@ function openCreateModal() {
   document.getElementById('modal-title').textContent = 'Nova Playlist';
   document.getElementById('pl-name').value = '';
   document.getElementById('pl-loop').checked = true;
+  document.getElementById('pl-transition').value = 'cut';
   document.getElementById('modal-error').style.display = 'none';
   renderItemsList();
   document.getElementById('playlist-modal').style.display = 'flex';
@@ -187,6 +197,7 @@ function editPlaylist(pl) {
   document.getElementById('modal-title').textContent = 'Editar Playlist';
   document.getElementById('pl-name').value = pl.name;
   document.getElementById('pl-loop').checked = pl.loop !== false;
+  document.getElementById('pl-transition').value = pl.transition || 'cut';
   document.getElementById('modal-error').style.display = 'none';
   renderItemsList();
   document.getElementById('playlist-modal').style.display = 'flex';
@@ -246,6 +257,7 @@ async function savePlaylist() {
   if (_saving) return;
   const name = document.getElementById('pl-name').value.trim();
   const loop = document.getElementById('pl-loop').checked;
+  const transition = document.getElementById('pl-transition').value;
   const errDiv = document.getElementById('modal-error');
 
   if (!name) {
@@ -258,7 +270,7 @@ async function savePlaylist() {
   const saveBtn = document.querySelector('#playlist-modal .btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
 
-  const body = {name, loop, items: plItems};
+  const body = {name, loop, transition, items: plItems};
   if (editingPlaylistId) body.id = editingPlaylistId;
 
   const url = editingPlaylistId ? `/api/playlists/${editingPlaylistId}` : '/api/playlists';

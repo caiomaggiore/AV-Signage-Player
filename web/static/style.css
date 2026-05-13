@@ -275,3 +275,62 @@ body.login-page {
 .text-muted { color: var(--text-muted); }
 .mono { font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 13px; }
 .player-status p { margin-bottom: 4px; }
+
+/* ── Section row: title + action button on same line ── */
+.section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.section-row h3 { margin-bottom: 0; }
+
+/* ── Inline fields: split module fields into columns ── */
+.fields-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+/* ── Modal actions pinned to bottom-right ── */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Playlist badge for transition type ── */
+.badge-transition { background: rgba(245,158,11,.12); color: var(--warning); }
+
+/* ── Wider modals for complex forms ── */
+.modal-card-lg { max-width: 640px; }
+
+/* ── Pairing code display ── */
+.pairing-block {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 20px;
+  text-align: center;
+  min-width: 160px;
+}
+.pairing-block .pairing-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+.pairing-block .pairing-code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--accent);
+}

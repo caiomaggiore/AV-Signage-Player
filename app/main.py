@@ -76,6 +76,8 @@ def _check_schedule() -> None:
                     playlist_id=pl["id"],
                     items=pl["items"],
                     loop=pl.get("loop", True),
+                    transition=pl.get("transition", "cut"),
+                    name=pl.get("name", ""),
                 )
                 config_service.save_state(
                     active_schedule_id=active["id"],
@@ -95,6 +97,8 @@ def _check_schedule() -> None:
                     playlist_id=pl["id"],
                     items=pl["items"],
                     loop=pl.get("loop", True),
+                    transition=pl.get("transition", "cut"),
+                    name=pl.get("name", ""),
                 )
                 config_service.save_state(last_playlist=fallback_id, active_schedule_id="")
                 logger.info("Playlist padrão iniciada: %s", fallback_id)
@@ -845,6 +849,8 @@ async def api_play_playlist(request: Request, playlist_id: str):
         playlist_id=pl["id"],
         items=pl["items"],
         loop=pl.get("loop", True),
+        transition=pl.get("transition", "cut"),
+        name=pl.get("name", ""),
     )
     config_service.save_state(manual_override=True, last_playlist=playlist_id)
     return JSONResponse({"ok": True, **player_service.status()})

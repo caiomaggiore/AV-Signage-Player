@@ -48,15 +48,25 @@
 <div class="section">
   <h3>Player</h3>
   <div class="player-status">
-    <p id="last-media">
-      {% if last_media %}
-        Arquivo atual: <strong>{{ last_media }}</strong>
+    <p id="last-playlist" style="margin-bottom:6px">
+      {% if player_status == 'playing' %}
+        <span class="text-muted" style="font-size:13px">Playlist:</span>
+        <strong id="playlist-name-text">—</strong>
+        <span id="playlist-pos-text" class="text-muted" style="font-size:12px"></span>
       {% else %}
-        <span class="text-muted">Nenhuma mídia selecionada.</span>
+        <span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>
       {% endif %}
     </p>
-    <div class="btn-group">
-      <a href="/media" class="btn btn-primary">Gerenciar Mídias</a>
+    <p id="last-media">
+      {% if last_media %}
+        <span class="text-muted" style="font-size:13px">Arquivo:</span> <strong>{{ last_media }}</strong>
+      {% else %}
+        <span class="text-muted">Nenhuma mídia em reprodução.</span>
+      {% endif %}
+    </p>
+    <div class="btn-group" style="margin-top:14px">
+      <a href="/media" class="btn btn-secondary btn-sm">Mídias</a>
+      <a href="/playlists" class="btn btn-primary btn-sm">Playlists</a>
     </div>
   </div>
 </div>
@@ -66,9 +76,13 @@
   {% if paired %}
     <p class="badge badge-success">Pareado com servidor</p>
   {% else %}
-    <p class="text-muted">Não pareado.
-      Código de pareamento: <strong class="mono">{{ pairing_code }}</strong>
-    </p>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <p class="text-muted" style="font-size:13px">Dispositivo não pareado com servidor central.</p>
+      <div class="pairing-block">
+        <div class="pairing-label">Código de Pareamento</div>
+        <div class="pairing-code">{{ pairing_code }}</div>
+      </div>
+    </div>
   {% endif %}
 </div>
 
@@ -89,19 +103,36 @@
       data = await r.json();
     } catch (e) { return; }
 
+    const p = data.player || {};
+    const playing = !!p.playing;
+
     const badge = document.getElementById('player-badge');
     if (badge) {
-      const playing = data.player && data.player.playing;
       badge.className = 'badge badge-' + (playing ? 'success' : 'neutral');
       badge.textContent = playing ? 'Reproduzindo' : 'Parado';
     }
 
+    // Playlist info
+    const plRow = document.getElementById('last-playlist');
+    if (plRow) {
+      if (playing && p.playing_playlist) {
+        const pos = p.playlist_total > 0
+          ? ' · ' + (p.playlist_index + 1) + '/' + p.playlist_total
+          : '';
+        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Playlist:</span> <strong>' + (p.playlist_name || p.playlist_id || '—') + '</strong>'
+          + '<span class="text-muted" style="font-size:12px"> ' + pos + '</span>';
+      } else if (playing) {
+        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Reprodução avulsa.</span>';
+      } else {
+        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>';
+      }
+    }
+
     const mediaEl = document.getElementById('last-media');
     if (mediaEl) {
-      const f = data.player && data.player.current_file;
-      mediaEl.innerHTML = f
-        ? 'Arquivo atual: <strong>' + f + '</strong>'
-        : '<span class="text-muted">Nenhuma mídia selecionada.</span>';
+      mediaEl.innerHTML = p.current_file
+        ? '<span class="text-muted" style="font-size:13px">Arquivo:</span> <strong>' + p.current_file + '</strong>'
+        : '<span class="text-muted">Nenhuma mídia em reprodução.</span>';
     }
 
     const ip = document.getElementById('stat-ip');

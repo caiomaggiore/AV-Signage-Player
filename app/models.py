@@ -137,11 +137,22 @@ class PlaylistItem(BaseModel):
         return v
 
 
+TRANSITIONS = ("cut", "fade")
+
+
 class Playlist(BaseModel):
     id: str
     name: str
     loop: bool = True
+    transition: str = "cut"
     items: List[PlaylistItem] = []
+
+    @field_validator("transition")
+    @classmethod
+    def transition_must_be_valid(cls, v: str) -> str:
+        if v not in TRANSITIONS:
+            raise ValueError(f"transition deve ser um de: {TRANSITIONS}")
+        return v
 
 
 class PlaylistsConfig(BaseModel):
