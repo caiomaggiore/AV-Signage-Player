@@ -1,0 +1,15 @@
+[Unit]
+Description=AV Signage Network Fallback
+After=NetworkManager.service network.target
+Before=av-signage-player.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/av-signage/scripts/network-fallback.sh
+RemainAfterExit=yes
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

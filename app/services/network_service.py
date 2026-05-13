@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 HOSTNAME_PREFIX = "signage"
 HOSTNAME_MAX_LEN = 63
+NM_CONN_NAME = "av-signage-eth"
+NM_WIFI_CONN_PREFIX = "av-signage-wifi"
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +37,6 @@ def validate_mask(mask: str) -> bool:
 
 
 def validate_gateway(gateway: str, ip: str, mask: str) -> tuple[bool, str]:
-    """Valida se o gateway é válido e está na mesma sub-rede que o IP."""
     if not validate_ip(gateway):
         return False, "Gateway inválido."
     try:
@@ -60,7 +61,6 @@ def validate_dns(dns_list: List[str]) -> tuple[bool, str]:
 
 
 def validate_static_config(ip: str, mask: str, gateway: str, dns: List[str]) -> tuple[bool, str]:
-    """Valida configuração completa de IP estático."""
     if not validate_ip(ip):
         return False, f"IP inválido: {ip}"
     if not validate_mask(mask):
@@ -71,7 +71,6 @@ def validate_static_config(ip: str, mask: str, gateway: str, dns: List[str]) -> 
     ok, msg = validate_dns(dns)
     if not ok:
         return False, msg
-    # Verificar que IP não é endereço de rede nem broadcast
     try:
         network = ipaddress.IPv4Network(f"{ip}/{mask}", strict=False)
         addr = ipaddress.IPv4Address(ip)
@@ -89,7 +88,6 @@ def validate_static_config(ip: str, mask: str, gateway: str, dns: List[str]) -> 
 # ---------------------------------------------------------------------------
 
 def _slugify(text: str) -> str:
-    """Converte texto para slug válido para hostname (sem acentos, só letras/números/hífen)."""
     nfkd = unicodedata.normalize("NFKD", text)
     ascii_text = nfkd.encode("ascii", "ignore").decode("ascii")
     slug = ascii_text.lower()
@@ -100,7 +98,6 @@ def _slugify(text: str) -> str:
 
 
 def build_hostname(device_name: str) -> str:
-    """Gera hostname técnico a partir do nome do dispositivo."""
     slug = _slugify(device_name)
     if not slug:
         slug = "player"
@@ -109,18 +106,16 @@ def build_hostname(device_name: str) -> str:
 
 
 def validate_hostname(hostname: str) -> tuple[bool, str]:
-    """Valida hostname final (com prefixo signage-)."""
     if not hostname.startswith(f"{HOSTNAME_PREFIX}-"):
         return False, f"Hostname deve começar com '{HOSTNAME_PREFIX}-'."
     if "_" in hostname:
         return False, "Hostname não pode conter underscore."
     if not re.match(r"^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", hostname):
-        return False, "Hostname deve conter apenas letras minúsculas, números e hífen, sem começar ou terminar com hífen."
+        return False, "Hostname deve conter apenas letras minúsculas, números e hífen."
     return True, ""
 
 
 def apply_hostname(hostname: str) -> tuple[bool, str]:
-    """Aplica novo hostname via hostnamectl e atualiza /etc/hosts."""
     ok, msg = validate_hostname(hostname)
     if not ok:
         return False, msg
@@ -129,7 +124,6 @@ def apply_hostname(hostname: str) -> tuple[bool, str]:
             ["sudo", "hostnamectl", "set-hostname", hostname],
             timeout=10, check=True, capture_output=True,
         )
-        # Atualizar /etc/hosts via sudo tee para evitar warnings
         hosts = Path("/etc/hosts").read_text()
         lines = []
         replaced = False
@@ -161,14 +155,10 @@ def apply_hostname(hostname: str) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# NetworkManager / nmcli
+# NetworkManager / nmcli — Ethernet
 # ---------------------------------------------------------------------------
 
-NM_CONN_NAME = "av-signage-eth"
-
-
 def _get_eth_interface() -> str:
-    """Retorna a primeira interface ethernet ativa."""
     try:
         result = subprocess.run(
             ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"],
@@ -178,7 +168,6 @@ def _get_eth_interface() -> str:
             parts = line.split(":")
             if len(parts) >= 3 and parts[1] == "ethernet" and parts[2] == "connected":
                 return parts[0]
-        # Fallback: primeira interface ethernet
         for line in result.stdout.splitlines():
             parts = line.split(":")
             if len(parts) >= 2 and parts[1] == "ethernet":
@@ -189,21 +178,16 @@ def _get_eth_interface() -> str:
 
 
 def apply_dhcp(interface: Optional[str] = None) -> tuple[bool, str]:
-    """Configura interface para DHCP via nmcli."""
     iface = interface or _get_eth_interface()
     try:
-        # Remover conexão gerenciada se existir
         subprocess.run(
             ["sudo", "nmcli", "connection", "delete", NM_CONN_NAME],
             capture_output=True, timeout=10,
         )
         subprocess.run(
             ["sudo", "nmcli", "connection", "add",
-             "type", "ethernet",
-             "con-name", NM_CONN_NAME,
-             "ifname", iface,
-             "ipv4.method", "auto",
-             "ipv4.link-local", "enabled"],
+             "type", "ethernet", "con-name", NM_CONN_NAME,
+             "ifname", iface, "ipv4.method", "auto", "ipv4.link-local", "enabled"],
             capture_output=True, text=True, timeout=10, check=True,
         )
         subprocess.run(
@@ -222,13 +206,11 @@ def apply_static(
     ip: str, mask: str, gateway: str, dns: List[str],
     interface: Optional[str] = None,
 ) -> tuple[bool, str]:
-    """Configura IP estático via nmcli."""
     ok, msg = validate_static_config(ip, mask, gateway, dns)
     if not ok:
         return False, msg
 
     iface = interface or _get_eth_interface()
-
     try:
         network = ipaddress.IPv4Network(f"{ip}/{mask}", strict=False)
         prefix = network.prefixlen
@@ -240,12 +222,9 @@ def apply_static(
         )
         cmd = [
             "sudo", "nmcli", "connection", "add",
-            "type", "ethernet",
-            "con-name", NM_CONN_NAME,
-            "ifname", iface,
-            "ipv4.method", "manual",
-            "ipv4.addresses", f"{ip}/{prefix}",
-            "ipv4.gateway", gateway,
+            "type", "ethernet", "con-name", NM_CONN_NAME,
+            "ifname", iface, "ipv4.method", "manual",
+            "ipv4.addresses", f"{ip}/{prefix}", "ipv4.gateway", gateway,
         ]
         if dns_str:
             cmd += ["ipv4.dns", dns_str]
@@ -264,7 +243,6 @@ def apply_static(
 
 
 def get_current_network_info() -> dict:
-    """Retorna informações da conexão de rede atual via nmcli."""
     try:
         result = subprocess.run(
             ["nmcli", "-t", "-f", "IP4.ADDRESS,IP4.GATEWAY,IP4.DNS", "device", "show", _get_eth_interface()],
@@ -282,3 +260,89 @@ def get_current_network_info() -> dict:
     except Exception as e:
         logger.warning("Não foi possível obter info de rede: %s", e)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Wi-Fi
+# ---------------------------------------------------------------------------
+
+def scan_wifi() -> List[dict]:
+    """Lista redes Wi-Fi disponíveis."""
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"],
+            capture_output=True, text=True, timeout=20,
+        )
+        seen: set[str] = set()
+        networks = []
+        for line in result.stdout.splitlines():
+            parts = line.split(":")
+            ssid = parts[0].strip() if parts else ""
+            if not ssid or ssid in seen:
+                continue
+            seen.add(ssid)
+            signal = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            security = parts[2] if len(parts) > 2 else ""
+            networks.append({"ssid": ssid, "signal": signal, "security": security})
+        networks.sort(key=lambda x: x["signal"], reverse=True)
+        return networks
+    except Exception as e:
+        logger.warning("scan_wifi error: %s", e)
+        return []
+
+
+def connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
+    """Conecta a uma rede Wi-Fi via nmcli."""
+    conn_name = f"{NM_WIFI_CONN_PREFIX}-{_slugify(ssid)[:20]}"
+    try:
+        subprocess.run(
+            ["sudo", "nmcli", "connection", "delete", conn_name],
+            capture_output=True, timeout=10,
+        )
+        cmd = ["sudo", "nmcli", "device", "wifi", "connect", ssid, "con-name", conn_name]
+        if password:
+            cmd += ["password", password]
+        subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+        logger.info("Wi-Fi conectado: %s", ssid)
+        return True, ""
+    except subprocess.CalledProcessError as e:
+        msg = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or str(e))
+        logger.error("Erro ao conectar Wi-Fi: %s", msg)
+        return False, msg
+    except Exception as e:
+        logger.error("Erro inesperado ao conectar Wi-Fi: %s", e)
+        return False, str(e)
+
+
+def get_wifi_info() -> dict:
+    """Retorna informações da conexão Wi-Fi atual."""
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,DEVICE", "device", "wifi"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            parts = line.split(":")
+            if len(parts) >= 2 and parts[0] == "yes":
+                return {
+                    "connected": True,
+                    "ssid": parts[1],
+                    "signal": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0,
+                    "device": parts[3] if len(parts) > 3 else "wlan0",
+                }
+    except Exception as e:
+        logger.warning("get_wifi_info error: %s", e)
+    return {"connected": False, "ssid": "", "signal": 0, "device": "wlan0"}
+
+
+def disconnect_wifi() -> tuple[bool, str]:
+    """Desconecta da rede Wi-Fi atual."""
+    try:
+        subprocess.run(
+            ["sudo", "nmcli", "device", "disconnect", "wlan0"],
+            capture_output=True, timeout=10, check=True,
+        )
+        return True, ""
+    except subprocess.CalledProcessError as e:
+        msg = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e)
+        return False, msg

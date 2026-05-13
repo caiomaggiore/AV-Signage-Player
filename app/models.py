@@ -4,6 +4,10 @@ from typing import List, Optional
 from pydantic import BaseModel, field_validator
 
 
+# ---------------------------------------------------------------------------
+# Rede
+# ---------------------------------------------------------------------------
+
 class NetworkConfig(BaseModel):
     mode: str = "dhcp"
     ip: str = ""
@@ -29,7 +33,7 @@ class MediaConfig(BaseModel):
     server_path: str = "/opt/av-signage/media/server"
     cache_path: str = "/opt/av-signage/media/cache"
     download_path: str = "/opt/av-signage/media/downloading"
-    allowed_extensions: List[str] = [".mp4", ".mov", ".mkv"]
+    allowed_extensions: List[str] = [".mp4", ".mov", ".mkv", ".jpg", ".jpeg", ".png"]
     max_upload_mb: int = 2048
 
 
@@ -101,7 +105,7 @@ class MergedConfig(BaseModel):
 class IdentityConfig(BaseModel):
     device_id: str = ""
     hardware_model: str = ""
-    software_version: str = "0.1.0"
+    software_version: str = "0.2.0"
     created_at: str = ""
 
 
@@ -111,3 +115,67 @@ class PairingConfig(BaseModel):
     server_url: str = ""
     device_token: str = ""
     last_pairing_attempt: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Playlist
+# ---------------------------------------------------------------------------
+
+MEDIA_TYPES = ("video", "image")
+
+
+class PlaylistItem(BaseModel):
+    type: str = "video"
+    filename: str
+    duration_seconds: int = 10
+
+    @field_validator("type")
+    @classmethod
+    def type_must_be_valid(cls, v: str) -> str:
+        if v not in MEDIA_TYPES:
+            raise ValueError(f"type deve ser um de: {MEDIA_TYPES}")
+        return v
+
+
+class Playlist(BaseModel):
+    id: str
+    name: str
+    loop: bool = True
+    items: List[PlaylistItem] = []
+
+
+class PlaylistsConfig(BaseModel):
+    playlists: List[Playlist] = []
+
+
+# ---------------------------------------------------------------------------
+# Agendamento
+# ---------------------------------------------------------------------------
+
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+class Schedule(BaseModel):
+    id: str
+    name: str
+    playlist_id: str
+    days: List[str] = []
+    start_time: str = "08:00"
+    end_time: str = "18:00"
+    enabled: bool = True
+
+
+class SchedulesConfig(BaseModel):
+    schedules: List[Schedule] = []
+    fallback_playlist_id: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Estado
+# ---------------------------------------------------------------------------
+
+class StateConfig(BaseModel):
+    manual_override: bool = False
+    network_mode: str = "dhcp"
+    last_playlist: str = ""
+    active_schedule_id: str = ""

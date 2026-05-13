@@ -15,6 +15,7 @@ from app.models import (
     MergedConfig,
     NetworkConfig,
     PairingConfig,
+    StateConfig,
     UserConfig,
 )
 
@@ -28,10 +29,10 @@ USER_CONFIG_FILE = CONFIG_DIR / "user_config.json"
 PENDING_CONFIG_FILE = CONFIG_DIR / "pending_config.json"
 IDENTITY_FILE = CONFIG_DIR / "identity.json"
 PAIRING_FILE = CONFIG_DIR / "pairing.json"
+STATE_FILE = CONFIG_DIR / "state.json"
 
 
 def _load_json(path: Path) -> dict:
-    """Carrega JSON de um arquivo, retorna {} em caso de erro."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -43,7 +44,6 @@ def _load_json(path: Path) -> dict:
 
 
 def _save_json(path: Path, data: dict) -> None:
-    """Salva dicionário como JSON com indentação."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.debug("Salvo: %s", path)
@@ -60,17 +60,21 @@ def _get_hardware_model() -> str:
 def _get_device_id() -> str:
     try:
         serial = Path("/proc/device-tree/serial-number").read_text().strip("\x00").strip()
-        return f"RPi-{serial[:8].upper()}"
+        return f"avsp-{serial[:8].lower()}"
     except Exception:
         try:
-            hostname = socket.gethostname()
-            return f"RPi-{hostname}"
+            mac = Path("/sys/class/net/eth0/address").read_text().strip()
+            hex_part = mac.replace(":", "")[:8]
+            return f"avsp-{hex_part}"
         except Exception:
-            return f"RPi-{random.randint(10000000, 99999999)}"
+            try:
+                hostname = socket.gethostname()
+                return f"avsp-{hostname[-8:]}"
+            except Exception:
+                return f"avsp-{random.randint(10000000, 99999999):08x}"
 
 
 def _generate_pairing_code() -> str:
-    """Gera código de pareamento no formato NNN-NNN."""
     return f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
 
@@ -81,15 +85,16 @@ class ConfigService:
         self._merged: Optional[MergedConfig] = None
         self._identity: Optional[IdentityConfig] = None
         self._pairing: Optional[PairingConfig] = None
+        self._state: Optional[StateConfig] = None
 
     def load(self) -> None:
-        """Carrega todos os arquivos de configuração e mescla."""
         self._defaults = DefaultsConfig(**_load_json(DEFAULTS_FILE))
         user_data = _load_json(USER_CONFIG_FILE)
         self._user = UserConfig(**user_data)
         self._merged = self._merge()
         self._identity = self._load_identity()
         self._pairing = self._load_pairing()
+        self._state = self._load_state()
         logger.info("Configuração carregada. Hostname: %s", self._merged.hostname)
 
     def _merge(self) -> MergedConfig:
@@ -131,9 +136,12 @@ class ConfigService:
         if not pairing.pairing_code:
             pairing.pairing_code = _generate_pairing_code()
             _save_json(PAIRING_FILE, pairing.model_dump())
-            logger.info("Código de pareamento gerado: %s", pairing.pairing_code)
 
         return pairing
+
+    def _load_state(self) -> StateConfig:
+        data = _load_json(STATE_FILE)
+        return StateConfig(**data)
 
     @property
     def config(self) -> MergedConfig:
@@ -153,20 +161,21 @@ class ConfigService:
             raise RuntimeError("ConfigService.load() não foi chamado.")
         return self._pairing
 
+    @property
+    def state(self) -> StateConfig:
+        if self._state is None:
+            self._state = StateConfig()
+        return self._state
+
     def save_user_config(self, user: UserConfig) -> None:
-        """Salva user_config.json e recarrega o merge."""
         _save_json(USER_CONFIG_FILE, user.model_dump())
         self._user = user
         self._merged = self._merge()
-        logger.info("user_config.json salvo.")
 
     def save_pending(self, user: UserConfig) -> None:
-        """Salva pending_config.json para aplicação após reboot."""
         _save_json(PENDING_CONFIG_FILE, user.model_dump())
-        logger.info("pending_config.json salvo.")
 
     def promote_pending(self) -> bool:
-        """Promove pending_config.json para user_config.json se existir."""
         if not PENDING_CONFIG_FILE.exists():
             return False
         try:
@@ -182,12 +191,17 @@ class ConfigService:
             return False
 
     def update_last_media(self, filename: str) -> None:
-        """Atualiza o último arquivo de mídia tocado."""
         if self._user:
             self._user.last_media = filename
             _save_json(USER_CONFIG_FILE, self._user.model_dump())
             if self._merged:
                 self._merged.last_media = filename
+
+    def save_state(self, **kwargs) -> None:
+        current = self.state
+        updated = current.model_copy(update=kwargs)
+        self._state = updated
+        _save_json(STATE_FILE, updated.model_dump())
 
 
 config_service = ConfigService()

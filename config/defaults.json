@@ -6,11 +6,11 @@
   "default_hostname": "signage-maggiore",
   "local_web_port": 8080,
   "network": {
-    "mode": "static",
-    "ip": "192.168.100.100",
-    "mask": "255.255.255.0",
-    "gateway": "192.168.100.1",
-    "dns": ["8.8.8.8", "8.8.4.4"]
+    "mode": "dhcp",
+    "ip": "",
+    "mask": "",
+    "gateway": "",
+    "dns": []
   },
   "server": {
     "enabled": false,
@@ -21,7 +21,7 @@
     "server_path": "/opt/av-signage/media/server",
     "cache_path": "/opt/av-signage/media/cache",
     "download_path": "/opt/av-signage/media/downloading",
-    "allowed_extensions": [".mp4", ".mov", ".mkv"],
+    "allowed_extensions": [".mp4", ".mov", ".mkv", ".jpg", ".jpeg", ".png"],
     "max_upload_mb": 2048
   },
   "player": {

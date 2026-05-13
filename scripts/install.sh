@@ -9,7 +9,9 @@ set -e
 
 INSTALL_DIR="/opt/av-signage"
 SERVICE_NAME="av-signage-player"
+FALLBACK_SERVICE="av-signage-fallback"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+FALLBACK_SERVICE_FILE="/etc/systemd/system/${FALLBACK_SERVICE}.service"
 SUDOERS_FILE="/etc/sudoers.d/av-signage"
 LOG_FILE="/tmp/av-signage-install.log"
 
@@ -23,7 +25,7 @@ warn() { echo -e "${YELLOW}[AV]${NC} $1" | tee -a "$LOG_FILE"; }
 fail() { echo -e "${RED}[ERRO]${NC} $1" | tee -a "$LOG_FILE"; exit 1; }
 
 echo "=================================================="
-echo "  AV Signage Player — Instalação"
+echo "  AV Signage Player v0.2 — Instalação"
 echo "=================================================="
 echo ""
 
@@ -48,11 +50,12 @@ apt-get install -y -qq \
     network-manager \
     libopenjp2-7 libtiff6 libfreetype6 \
     fonts-dejavu-core \
+    libzbar0 \
     curl git tree
 
 # ── 2. Estrutura de diretórios ──────────────────────────────────────────────
 log "Criando estrutura de diretórios em $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"/{app,web/templates,web/static,config,media/local,media/server,media/cache,media/downloading,logs,scripts,systemd}
+mkdir -p "$INSTALL_DIR"/{app/services,web/templates,web/static,config,media/{local,server,cache,downloading,factory,backup},logs,scripts,systemd}
 chown -R "$CURRENT_USER:$CURRENT_USER" "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
 chmod 700 "$INSTALL_DIR/config"
@@ -79,28 +82,37 @@ visudo -c -f "$SUDOERS_FILE" || fail "Arquivo sudoers inválido!"
 log "Adicionando $CURRENT_USER aos grupos video e render..."
 usermod -aG video,render "$CURRENT_USER" 2>/dev/null || warn "Não foi possível adicionar aos grupos."
 
-# ── 6. Serviço systemd ──────────────────────────────────────────────────────
-log "Instalando serviço systemd..."
+# ── 6. Script de fallback de rede ──────────────────────────────────────────
+log "Configurando script de fallback de rede..."
+chmod +x "$INSTALL_DIR/scripts/network-fallback.sh"
+
+# ── 7. Serviços systemd ─────────────────────────────────────────────────────
+log "Instalando serviços systemd..."
+
+# Serviço principal
 cp "$INSTALL_DIR/systemd/${SERVICE_NAME}.service" "$SERVICE_FILE"
-# Substituir 'admin' pelo usuário atual no arquivo de serviço
 sed -i "s/User=admin/User=${CURRENT_USER}/g" "$SERVICE_FILE"
 sed -i "s/Group=admin/Group=${CURRENT_USER}/g" "$SERVICE_FILE"
 
+# Serviço de fallback de rede
+cp "$INSTALL_DIR/systemd/${FALLBACK_SERVICE}.service" "$FALLBACK_SERVICE_FILE"
+
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
-log "Serviço $SERVICE_NAME habilitado para iniciar no boot."
+systemctl enable "$FALLBACK_SERVICE"
+log "Serviços habilitados para iniciar no boot."
 
-# ── 7. Avahi / mDNS ─────────────────────────────────────────────────────────
+# ── 8. Avahi / mDNS ─────────────────────────────────────────────────────────
 log "Habilitando Avahi (mDNS)..."
 systemctl enable avahi-daemon
 systemctl start avahi-daemon 2>/dev/null || true
 
-# ── 8. NetworkManager ───────────────────────────────────────────────────────
+# ── 9. NetworkManager ───────────────────────────────────────────────────────
 log "Verificando NetworkManager..."
 systemctl enable NetworkManager
 systemctl start NetworkManager 2>/dev/null || true
 
-# ── 9. Suprimir terminal Linux no HDMI ─────────────────────────────────────
+# ── 10. Suprimir terminal Linux no HDMI ────────────────────────────────────
 log "Desabilitando terminal de login no HDMI (getty@tty1)..."
 systemctl disable getty@tty1 2>/dev/null || warn "Não foi possível desabilitar getty@tty1."
 systemctl stop getty@tty1 2>/dev/null || true
@@ -108,25 +120,34 @@ systemctl stop getty@tty1 2>/dev/null || true
 log "Suprimindo mensagens de boot na saída de vídeo..."
 CMDLINE="/boot/firmware/cmdline.txt"
 if [ -f "$CMDLINE" ]; then
-    # Adicionar parâmetros se ainda não presentes
     if ! grep -q "vt.global_cursor_default=0" "$CMDLINE"; then
         sed -i 's/$/ quiet loglevel=0 vt.global_cursor_default=0 logo.nologo/' "$CMDLINE"
         log "Parâmetros de boot atualizados em $CMDLINE."
     fi
 else
-    warn "Arquivo $CMDLINE não encontrado. Mensagens de boot permanecerão visíveis."
+    warn "Arquivo $CMDLINE não encontrado."
 fi
 
-# ── 10. Iniciar serviço ─────────────────────────────────────────────────────
+# ── 11. Inicializar configs padrão se ausentes ──────────────────────────────
+log "Verificando arquivos de configuração..."
+for cfg in playlists.json schedules.json state.json; do
+    if [ ! -f "$INSTALL_DIR/config/$cfg" ]; then
+        cp "$INSTALL_DIR/config/$cfg" "$INSTALL_DIR/config/$cfg" 2>/dev/null || true
+    fi
+done
+
+# ── 12. Iniciar serviços ────────────────────────────────────────────────────
 log "Iniciando AV Signage Player..."
+systemctl start "$FALLBACK_SERVICE" 2>/dev/null || warn "Fallback service não iniciou."
 systemctl start "$SERVICE_NAME" || warn "Serviço não iniciou. Verifique: journalctl -u $SERVICE_NAME -f"
 
 echo ""
 echo "=================================================="
-echo -e "${GREEN}  Instalação concluída!${NC}"
+echo -e "${GREEN}  Instalação v0.2 concluída!${NC}"
 echo "=================================================="
 echo ""
 echo "  Acesse: http://$(hostname).local:8080"
+echo "  Fallback: http://192.168.50.10:8080 (se sem DHCP)"
 echo "  Logs:   journalctl -u $SERVICE_NAME -f"
 echo "  Status: systemctl status $SERVICE_NAME"
 echo ""

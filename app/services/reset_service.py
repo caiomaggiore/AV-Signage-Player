@@ -16,24 +16,18 @@ MEDIA_SERVER = BASE_DIR / "media" / "server"
 MEDIA_CACHE = BASE_DIR / "media" / "cache"
 MEDIA_DOWNLOADING = BASE_DIR / "media" / "downloading"
 
-# Arquivos que nunca devem ser apagados
 PROTECTED_FILES = {"defaults.json"}
 
-# Arquivos de configuração do usuário
 USER_CONFIG_FILES = [
     CONFIG_DIR / "user_config.json",
     CONFIG_DIR / "pending_config.json",
     CONFIG_DIR / "pairing.json",
     CONFIG_DIR / "auth.json",
+    CONFIG_DIR / "state.json",
 ]
 
 
 def _backup_user_media() -> dict:
-    """Copia todas as mídias de media/local para media/backup antes do factory reset.
-
-    Mantém apenas o backup mais recente para não consumir disco desnecessariamente.
-    Retorna dict com contagem e caminho do backup criado.
-    """
     import time
 
     if not MEDIA_LOCAL.exists():
@@ -50,7 +44,6 @@ def _backup_user_media() -> dict:
     for src in files:
         shutil.copy2(src, backup_dir / src.name)
 
-    # Remover backups antigos — manter apenas o último
     all_backups = sorted(
         (d for d in MEDIA_BACKUP.iterdir() if d.is_dir()),
         key=lambda d: d.name,
@@ -63,7 +56,6 @@ def _backup_user_media() -> dict:
 
 
 def _restore_factory_media(overwrite: bool = False) -> int:
-    """Copia vídeos de fábrica para media/local. Se overwrite=True, substitui existentes."""
     if not MEDIA_FACTORY.exists():
         return 0
     MEDIA_LOCAL.mkdir(parents=True, exist_ok=True)
@@ -74,12 +66,10 @@ def _restore_factory_media(overwrite: bool = False) -> int:
             if overwrite or not dest.exists():
                 shutil.copy2(src, dest)
                 count += 1
-                logger.info("Mídia de fábrica restaurada: %s", src.name)
     return count
 
 
 def _clear_dir(path: Path) -> int:
-    """Remove todos os arquivos dentro do diretório. Retorna quantidade removida."""
     count = 0
     if not path.exists():
         return 0
@@ -94,29 +84,13 @@ def _clear_dir(path: Path) -> int:
 
 
 def _remove_file(path: Path) -> bool:
-    """Remove arquivo se existir. Retorna True se removido."""
     if path.exists() and path.name not in PROTECTED_FILES:
         path.unlink()
-        logger.debug("Removido: %s", path)
         return True
     return False
 
 
 def reset_config(stop_player_fn=None) -> dict:
-    """
-    Reset de configuração — mantém mídias locais.
-
-    Remove:
-      - user_config.json
-      - pending_config.json
-      - pairing.json
-      - auth.json (senha)
-
-    Mantém:
-      - defaults.json
-      - media/local/
-      - software instalado
-    """
     if stop_player_fn:
         try:
             stop_player_fn()
@@ -128,18 +102,20 @@ def reset_config(stop_player_fn=None) -> dict:
         if _remove_file(f):
             removed.append(f.name)
 
-    # Restaurar hostname padrão
+    # Também remover playlists e schedules do usuário
+    for extra in [CONFIG_DIR / "playlists.json", CONFIG_DIR / "schedules.json"]:
+        if _remove_file(extra):
+            removed.append(extra.name)
+
     try:
         subprocess.run(["sudo", "hostnamectl", "set-hostname", "signage-maggiore"],
                        timeout=5, check=True, capture_output=True)
-        logger.info("Hostname restaurado para signage-maggiore.")
     except Exception as e:
         logger.warning("Não foi possível restaurar hostname: %s", e)
 
-    # Restaurar mídias de fábrica que o usuário possa ter removido (sem sobrescrever existentes)
     restored_media = _restore_factory_media(overwrite=False)
 
-    logger.info("Reset de configuração concluído. Removidos: %s. Mídias de fábrica restauradas: %d.", removed, restored_media)
+    logger.info("Reset de configuração concluído. Removidos: %s.", removed)
     return {
         "ok": True,
         "type": "reset_config",
@@ -150,24 +126,6 @@ def reset_config(stop_player_fn=None) -> dict:
 
 
 def factory_reset(stop_player_fn=None) -> dict:
-    """
-    Factory reset completo — apaga configurações E mídias.
-
-    Remove:
-      - user_config.json
-      - pending_config.json
-      - pairing.json
-      - auth.json
-      - media/local/*
-      - media/server/*
-      - media/cache/*
-      - media/downloading/*
-
-    Mantém:
-      - defaults.json
-      - software instalado
-      - serviço systemd
-    """
     if stop_player_fn:
         try:
             stop_player_fn()
@@ -179,29 +137,27 @@ def factory_reset(stop_player_fn=None) -> dict:
         if _remove_file(f):
             removed_files.append(f.name)
 
-    # Backup antes de apagar — permite recuperação manual em caso de factory reset acidental
+    for extra in [CONFIG_DIR / "playlists.json", CONFIG_DIR / "schedules.json"]:
+        if _remove_file(extra):
+            removed_files.append(extra.name)
+
     backup_result = _backup_user_media()
 
     removed_media = 0
     for media_dir in [MEDIA_LOCAL, MEDIA_SERVER, MEDIA_CACHE, MEDIA_DOWNLOADING]:
         removed_media += _clear_dir(media_dir)
 
-    # Restaurar hostname padrão
     try:
         subprocess.run(["sudo", "hostnamectl", "set-hostname", "signage-maggiore"],
                        timeout=5, check=True, capture_output=True)
     except Exception as e:
         logger.warning("Não foi possível restaurar hostname: %s", e)
 
-    # Sempre restaurar mídias de fábrica após factory reset
     restored_media = _restore_factory_media(overwrite=True)
 
     logger.info(
-        "Factory reset concluído. Config removidos: %s. Mídias removidas: %d. "
-        "Backup: %d arquivos em %s. Fábrica restaurada: %d.",
-        removed_files, removed_media,
-        backup_result["backed_up"], backup_result["backup_path"],
-        restored_media,
+        "Factory reset concluído. Config: %s. Mídias: %d. Backup: %d arquivos.",
+        removed_files, removed_media, backup_result["backed_up"],
     )
     return {
         "ok": True,
@@ -214,6 +170,5 @@ def factory_reset(stop_player_fn=None) -> dict:
 
 
 def reboot() -> None:
-    """Executa reboot do sistema."""
     logger.info("Reboot solicitado.")
     subprocess.Popen(["sudo", "reboot"])

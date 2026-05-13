@@ -22,6 +22,9 @@
     {% if player.playing %}
       <p>Reproduzindo: <strong>{{ player.current_file }}</strong>
         &nbsp;<span class="badge badge-success">AO VIVO</span>
+        {% if player.get('playing_playlist') %}
+          &nbsp;<span class="badge badge-neutral">Playlist: {{ player.playlist_id }}</span>
+        {% endif %}
       </p>
     {% else %}
       <p class="text-muted">Nenhuma mídia em reprodução.</p>
@@ -42,11 +45,11 @@
 
 <!-- Upload -->
 <div class="section">
-  <h3>Enviar novo vídeo</h3>
+  <h3>Enviar mídia</h3>
   <form id="upload-form" enctype="multipart/form-data">
     <div class="form-group">
-      <label>Arquivo (.mp4, .mov, .mkv)</label>
-      <input type="file" id="upload-file" name="file" accept=".mp4,.mov,.mkv" required>
+      <label>Arquivo (.mp4, .mov, .mkv, .jpg, .jpeg, .png)</label>
+      <input type="file" id="upload-file" name="file" accept=".mp4,.mov,.mkv,.jpg,.jpeg,.png" required>
     </div>
     <div id="upload-progress" style="display:none; margin-bottom:12px">
       <div class="progress-bar-track">
@@ -68,6 +71,7 @@
         <th class="sortable" data-col="name" onclick="sortTable('name')">
           Nome <span class="sort-icon" id="icon-name">↕</span>
         </th>
+        <th style="width:80px">Tipo</th>
         <th class="sortable" data-col="size" onclick="sortTable('size')" style="width:110px">
           Tamanho <span class="sort-icon" id="icon-size">↕</span>
         </th>
@@ -81,11 +85,16 @@
       {% for f in files %}
       <tr data-name="{{ f.name }}" data-size="{{ f.size_bytes }}" data-ts="{{ f.modified_ts }}">
         <td class="mono">{{ f.name }}</td>
+        <td>
+          <span class="badge {{ 'badge-info' if f.type == 'image' else 'badge-neutral' }}">
+            {{ 'Imagem' if f.type == 'image' else 'Vídeo' }}
+          </span>
+        </td>
         <td class="text-muted">{{ f.size_mb }} MB</td>
         <td class="text-muted" style="font-size:13px">{{ f.modified_str }}</td>
         <td>
           <div class="btn-group">
-            <button class="btn btn-primary btn-sm" onclick="playMedia('{{ f.name }}')">Play</button>
+            <button class="btn btn-primary btn-sm" onclick="playMedia('{{ f.name }}', '{{ f.type }}')">Play</button>
             <button class="btn btn-danger btn-sm" onclick="deleteMedia('{{ f.name }}', this)">Remover</button>
           </div>
         </td>
@@ -94,7 +103,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="text-muted">Nenhum vídeo encontrado. Faça o upload acima.</p>
+  <p class="text-muted">Nenhum arquivo encontrado. Faça o upload acima.</p>
   {% endif %}
 </div>
 
@@ -121,11 +130,13 @@ async function toggleLoop() {
   if (r.ok) updatePlayerUI(await r.json());
 }
 
-async function playMedia(filename) {
+async function playMedia(filename, type) {
+  const body = {filename, loop: loopEnabled};
+  if (type === 'image') body.duration_seconds = 10;
   const r = await fetch('/api/player/play', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({filename, loop: loopEnabled})
+    body: JSON.stringify(body)
   });
   if (r.ok) updatePlayerUI(await r.json());
   else {
@@ -141,7 +152,8 @@ function updatePlayerUI(data) {
   const btnStop = document.getElementById('btn-stop');
   const btnRestart = document.getElementById('btn-restart');
   if (data.playing) {
-    bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong> &nbsp;<span class="badge badge-success">AO VIVO</span></p>`;
+    let extra = data.playing_playlist ? ` <span class="badge badge-neutral">Playlist</span>` : '';
+    bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong> &nbsp;<span class="badge badge-success">AO VIVO</span>${extra}</p>`;
     btnStop.disabled = false;
     btnRestart.disabled = false;
   } else {
@@ -181,9 +193,9 @@ document.getElementById('upload-form').addEventListener('submit', async function
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/media/upload');
 
-  xhr.upload.onprogress = function(e) {
-    if (e.lengthComputable) {
-      const pct = Math.round(e.loaded / e.total * 100);
+  xhr.upload.onprogress = function(ev) {
+    if (ev.lengthComputable) {
+      const pct = Math.round(ev.loaded / ev.total * 100);
       progressFill.style.width = pct + '%';
       progressLabel.textContent = `Enviando... ${pct}%`;
     }
@@ -193,17 +205,18 @@ document.getElementById('upload-form').addEventListener('submit', async function
     progressDiv.style.display = 'none';
     if (xhr.status === 200) {
       const data = JSON.parse(xhr.responseText);
-      progressLabel.textContent = 'Enviado!';
-      // Adiciona linha na tabela sem reload
       const tbody = document.getElementById('media-list');
       if (tbody) {
+        const typeLabel = data.type === 'image' ? '<span class="badge badge-info">Imagem</span>' : '<span class="badge badge-neutral">Vídeo</span>';
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="mono">${data.filename}</td>
+          <td>${typeLabel}</td>
           <td class="text-muted">${data.size_mb} MB</td>
+          <td class="text-muted" style="font-size:13px">agora</td>
           <td>
             <div class="btn-group">
-              <button class="btn btn-primary btn-sm" onclick="playMedia('${data.filename}')">Play</button>
+              <button class="btn btn-primary btn-sm" onclick="playMedia('${data.filename}','${data.type}')">Play</button>
               <button class="btn btn-danger btn-sm" onclick="deleteMedia('${data.filename}', this)">Remover</button>
             </div>
           </td>`;
@@ -258,8 +271,6 @@ function sortTable(col) {
   });
 
   rows.forEach(r => tbody.appendChild(r));
-
-  // Atualiza ícones
   ['name', 'size', 'date'].forEach(c => {
     const el = document.getElementById('icon-' + c);
     if (el) el.textContent = c === col ? (sortState.asc ? '↑' : '↓') : '↕';

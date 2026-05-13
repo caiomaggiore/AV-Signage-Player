@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Playlists — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Playlists</h2>
+  <button class="btn btn-primary" onclick="openCreateModal()">Nova Playlist</button>
+</div>
+
+<!-- Status do player -->
+<div class="section" id="player-section">
+  <h3>Player</h3>
+  <div id="player-status-bar">
+    {% if player.playing %}
+      <p>Reproduzindo: <strong>{{ player.current_file }}</strong>
+        {% if player.get('playing_playlist') %}
+          &nbsp;<span class="badge badge-success">Playlist: {{ player.playlist_id }}</span>
+          &nbsp;<span class="text-muted" style="font-size:13px">item {{ player.playlist_index + 1 }}/{{ player.playlist_total }}</span>
+        {% else %}
+          &nbsp;<span class="badge badge-success">AO VIVO</span>
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="text-muted">Nenhuma mídia em reprodução.</p>
+    {% endif %}
+  </div>
+  {% if player.playing and player.get('playing_playlist') %}
+  <div class="btn-group" style="margin-top:10px">
+    <button class="btn btn-secondary" onclick="playerPrev()">⏮ Anterior</button>
+    <button class="btn btn-secondary" onclick="playerNext()">Próximo ⏭</button>
+    <button class="btn btn-danger" onclick="playerStop()">Parar</button>
+  </div>
+  {% elif player.playing %}
+  <div class="btn-group" style="margin-top:10px">
+    <button class="btn btn-danger" onclick="playerStop()">Parar</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Lista de playlists -->
+{% if playlists %}
+<div class="section">
+  <h3>Playlists salvas</h3>
+  {% for pl in playlists %}
+  <div class="playlist-card" id="pl-{{ pl.id }}">
+    <div class="playlist-header">
+      <div>
+        <strong>{{ pl.name }}</strong>
+        <span class="text-muted" style="font-size:13px; margin-left:8px">
+          {{ pl.items|length }} item(s)
+          {% if pl.loop %} · Loop{% endif %}
+        </span>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="playPlaylist('{{ pl.id }}')">▶ Tocar</button>
+        <button class="btn btn-secondary btn-sm" onclick='editPlaylist({{ pl | tojson }})'>Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePlaylist('{{ pl.id }}', this)">Remover</button>
+      </div>
+    </div>
+    {% if pl.items %}
+    <ul class="playlist-items">
+      {% for item in pl.items %}
+      <li>
+        <span class="badge {{ 'badge-info' if item.type == 'image' else 'badge-neutral' }}">{{ 'IMG' if item.type == 'image' else 'VID' }}</span>
+        <span class="mono" style="font-size:13px">{{ item.filename }}</span>
+        {% if item.type == 'image' %}
+          <span class="text-muted" style="font-size:12px"> · {{ item.duration_seconds }}s</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted" style="font-size:13px; padding:8px 0">Playlist vazia.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="section">
+  <p class="text-muted">Nenhuma playlist criada ainda. Clique em "Nova Playlist" para começar.</p>
+</div>
+{% endif %}
+
+<!-- Modal criar/editar playlist -->
+<div id="playlist-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-card" style="max-width:640px; width:95%">
+    <h3 id="modal-title" style="margin-bottom:16px; color:var(--text)">Nova Playlist</h3>
+
+    <div class="form-group">
+      <label>Nome da playlist</label>
+      <input type="text" id="pl-name" placeholder="Ex: Recepção Principal" autocomplete="off">
+    </div>
+
+    <div class="form-group" style="display:flex; align-items:center; gap:12px">
+      <input type="checkbox" id="pl-loop" checked style="width:auto">
+      <label for="pl-loop" style="margin:0; font-size:14px">Loop (repetir ao terminar)</label>
+    </div>
+
+    <div class="form-group">
+      <label>Itens da playlist</label>
+      <p class="text-muted" style="font-size:13px; margin-bottom:8px">Adicione arquivos de mídia e defina a ordem. Imagens têm duração configurável.</p>
+      <div id="pl-items-list" style="max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:8px; background:var(--surface)">
+        <p class="text-muted" style="font-size:13px; text-align:center; padding:12px">Nenhum item adicionado.</p>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Adicionar arquivo</label>
+      <div class="btn-group" style="align-items:center">
+        <select id="pl-file-select" style="flex:1">
+          {% for f in files %}
+          <option value="{{ f.name }}" data-type="{{ f.type }}">{{ f.name }} ({{ 'Imagem' if f.type == 'image' else 'Vídeo' }})</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="addItemToPlaylist()">+ Adicionar</button>
+      </div>
+    </div>
+
+    <div id="modal-error" class="alert alert-error" style="display:none"></div>
+
+    <div class="btn-group" style="margin-top:8px">
+      <button class="btn btn-primary" onclick="savePlaylist()">Salvar</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.playlist-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.playlist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.playlist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.playlist-items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.playlist-items li:last-child { border-bottom: none; }
+.pl-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.pl-item-row:last-child { border-bottom: none; }
+</style>
+
+<script>
+let editingPlaylistId = null;
+let plItems = [];
+
+function openCreateModal() {
+  editingPlaylistId = null;
+  plItems = [];
+  document.getElementById('modal-title').textContent = 'Nova Playlist';
+  document.getElementById('pl-name').value = '';
+  document.getElementById('pl-loop').checked = true;
+  document.getElementById('modal-error').style.display = 'none';
+  renderItemsList();
+  document.getElementById('playlist-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('pl-name').focus(), 100);
+}
+
+function editPlaylist(pl) {
+  editingPlaylistId = pl.id;
+  plItems = pl.items ? pl.items.map(i => ({...i})) : [];
+  document.getElementById('modal-title').textContent = 'Editar Playlist';
+  document.getElementById('pl-name').value = pl.name;
+  document.getElementById('pl-loop').checked = pl.loop !== false;
+  document.getElementById('modal-error').style.display = 'none';
+  renderItemsList();
+  document.getElementById('playlist-modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('playlist-modal').style.display = 'none';
+  editingPlaylistId = null;
+  plItems = [];
+}
+
+function addItemToPlaylist() {
+  const sel = document.getElementById('pl-file-select');
+  if (!sel.value) return;
+  const type = sel.options[sel.selectedIndex].dataset.type || 'video';
+  plItems.push({
+    filename: sel.value,
+    type: type,
+    duration_seconds: 10,
+  });
+  renderItemsList();
+}
+
+function removeItem(index) {
+  plItems.splice(index, 1);
+  renderItemsList();
+}
+
+function moveItem(index, dir) {
+  const target = index + dir;
+  if (target < 0 || target >= plItems.length) return;
+  [plItems[index], plItems[target]] = [plItems[target], plItems[index]];
+  renderItemsList();
+}
+
+function renderItemsList() {
+  const container = document.getElementById('pl-items-list');
+  if (plItems.length === 0) {
+    container.innerHTML = '<p class="text-muted" style="font-size:13px; text-align:center; padding:12px">Nenhum item adicionado.</p>';
+    return;
+  }
+  container.innerHTML = plItems.map((item, i) => `
+    <div class="pl-item-row">
+      <span class="badge ${item.type === 'image' ? 'badge-info' : 'badge-neutral'}">${item.type === 'image' ? 'IMG' : 'VID'}</span>
+      <span class="mono" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${item.filename}</span>
+      ${item.type === 'image' ? `<input type="number" value="${item.duration_seconds}" min="1" max="3600" style="width:60px" onchange="plItems[${i}].duration_seconds=parseInt(this.value)||10">s` : ''}
+      <button class="btn btn-secondary btn-sm" onclick="moveItem(${i},-1)" ${i===0?'disabled':''}>↑</button>
+      <button class="btn btn-secondary btn-sm" onclick="moveItem(${i},1)" ${i===plItems.length-1?'disabled':''}>↓</button>
+      <button class="btn btn-danger btn-sm" onclick="removeItem(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+async function savePlaylist() {
+  const name = document.getElementById('pl-name').value.trim();
+  const loop = document.getElementById('pl-loop').checked;
+  const errDiv = document.getElementById('modal-error');
+
+  if (!name) {
+    errDiv.textContent = 'Informe um nome para a playlist.';
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  const body = {name, loop, items: plItems};
+  if (editingPlaylistId) body.id = editingPlaylistId;
+
+  const url = editingPlaylistId ? `/api/playlists/${editingPlaylistId}` : '/api/playlists';
+  const method = editingPlaylistId ? 'PUT' : 'POST';
+
+  const r = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+
+  if (r.ok) {
+    closeModal();
+    window.location.reload();
+  } else {
+    const data = await r.json();
+    errDiv.textContent = data.error || 'Erro ao salvar.';
+    errDiv.style.display = 'block';
+  }
+}
+
+async function deletePlaylist(id, btn) {
+  if (!confirm('Remover esta playlist?')) return;
+  btn.disabled = true;
+  const r = await fetch(`/api/playlists/${id}`, {method: 'DELETE'});
+  if (r.ok) {
+    document.getElementById(`pl-${id}`)?.remove();
+  } else {
+    alert('Erro ao remover.');
+    btn.disabled = false;
+  }
+}
+
+async function playPlaylist(id) {
+  const r = await fetch(`/api/playlists/${id}/play`, {method: 'POST'});
+  const data = await r.json();
+  if (r.ok) {
+    updatePlayerBar(data);
+  } else {
+    alert('Erro: ' + data.error);
+  }
+}
+
+async function playerStop() {
+  const r = await fetch('/api/player/stop', {method: 'POST'});
+  if (r.ok) updatePlayerBar(await r.json());
+}
+
+async function playerNext() {
+  const r = await fetch('/api/player/next', {method: 'POST'});
+  if (r.ok) updatePlayerBar(await r.json());
+}
+
+async function playerPrev() {
+  const r = await fetch('/api/player/previous', {method: 'POST'});
+  if (r.ok) updatePlayerBar(await r.json());
+}
+
+function updatePlayerBar(data) {
+  const bar = document.getElementById('player-status-bar');
+  if (data.playing) {
+    let extra = '';
+    if (data.playing_playlist) {
+      extra = ` <span class="badge badge-success">Playlist: ${data.playlist_id}</span> <span class="text-muted" style="font-size:13px">item ${data.playlist_index+1}/${data.playlist_total}</span>`;
+    } else {
+      extra = ' <span class="badge badge-success">AO VIVO</span>';
+    }
+    bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong>${extra}</p>`;
+  } else {
+    bar.innerHTML = '<p class="text-muted">Nenhuma mídia em reprodução.</p>';
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+{% endblock %}

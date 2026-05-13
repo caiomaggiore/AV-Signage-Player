@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}Agenda — AV Signage Player{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Agendamento</h2>
+  <button class="btn btn-primary" onclick="openCreateModal()">Novo Agendamento</button>
+</div>
+
+<p class="text-muted" style="margin-bottom:20px; font-size:14px">
+  Define qual playlist é tocada em cada dia e horário. Quando não há agendamento ativo, a playlist padrão é usada.
+</p>
+
+<!-- Playlist padrão (fallback) -->
+<div class="section">
+  <h3>Playlist padrão (fallback)</h3>
+  <p class="text-muted" style="font-size:13px; margin-bottom:12px">Tocada quando nenhum agendamento está ativo.</p>
+  <div class="btn-group" style="align-items:center">
+    <select id="fallback-select" style="flex:1; max-width:320px">
+      <option value="">— Nenhuma (exibir tela de status) —</option>
+      {% for pl in playlists %}
+      <option value="{{ pl.id }}" {% if pl.id == fallback_playlist_id %}selected{% endif %}>{{ pl.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" onclick="saveFallback()">Salvar</button>
+  </div>
+  <div id="fallback-ok" class="alert alert-success" style="display:none; margin-top:8px"></div>
+</div>
+
+<!-- Lista de agendamentos -->
+{% if schedules %}
+<div class="section">
+  <h3>Agendamentos</h3>
+  {% for sc in schedules %}
+  <div class="schedule-card" id="sc-{{ sc.id }}">
+    <div class="schedule-header">
+      <div>
+        <strong>{{ sc.name }}</strong>
+        <span class="badge {{ 'badge-success' if sc.enabled else 'badge-neutral' }}" style="margin-left:8px">
+          {{ 'Ativo' if sc.enabled else 'Inativo' }}
+        </span>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary btn-sm" onclick='editSchedule({{ sc | tojson }})'>Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSchedule('{{ sc.id }}', this)">Remover</button>
+      </div>
+    </div>
+    <div class="schedule-details">
+      <span class="text-muted" style="font-size:13px">
+        {% set day_labels = {'mon':'Seg','tue':'Ter','wed':'Qua','thu':'Qui','fri':'Sex','sat':'Sáb','sun':'Dom'} %}
+        {% for d in sc.days %}{{ day_labels.get(d, d) }}{% if not loop.last %}, {% endif %}{% endfor %}
+        &nbsp;·&nbsp; {{ sc.start_time }} – {{ sc.end_time }}
+        &nbsp;·&nbsp;
+        {% set pl = playlists | selectattr('id', 'equalto', sc.playlist_id) | first | default(None) %}
+        Playlist: <strong>{{ pl.name if pl else sc.playlist_id }}</strong>
+      </span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="section">
+  <p class="text-muted">Nenhum agendamento criado. Clique em "Novo Agendamento" para configurar.</p>
+</div>
+{% endif %}
+
+<!-- Modal criar/editar agendamento -->
+<div id="schedule-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-card" style="max-width:520px; width:95%">
+    <h3 id="modal-title" style="margin-bottom:16px; color:var(--text)">Novo Agendamento</h3>
+
+    <div class="form-group">
+      <label>Nome</label>
+      <input type="text" id="sc-name" placeholder="Ex: Horário comercial" autocomplete="off">
+    </div>
+
+    <div class="form-group">
+      <label>Playlist</label>
+      <select id="sc-playlist">
+        {% for pl in playlists %}
+        <option value="{{ pl.id }}">{{ pl.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Dias da semana</label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        {% for day, label in [('mon','Seg'),('tue','Ter'),('wed','Qua'),('thu','Qui'),('fri','Sex'),('sat','Sáb'),('sun','Dom')] %}
+        <label class="day-checkbox">
+          <input type="checkbox" name="day" value="{{ day }}"> {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-group" style="display:flex; gap:16px">
+      <div style="flex:1">
+        <label>Início</label>
+        <input type="time" id="sc-start" value="08:00">
+      </div>
+      <div style="flex:1">
+        <label>Fim</label>
+        <input type="time" id="sc-end" value="18:00">
+      </div>
+    </div>
+
+    <div class="form-group" style="display:flex; align-items:center; gap:12px">
+      <input type="checkbox" id="sc-enabled" checked style="width:auto">
+      <label for="sc-enabled" style="margin:0; font-size:14px">Agendamento ativo</label>
+    </div>
+
+    <div id="modal-error" class="alert alert-error" style="display:none"></div>
+
+    <div class="btn-group" style="margin-top:8px">
+      <button class="btn btn-primary" onclick="saveSchedule()">Salvar</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.schedule-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 10px;
+}
+.schedule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.schedule-details { margin-top: 4px; }
+.day-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+}
+.day-checkbox input { margin: 0; }
+</style>
+
+<script>
+let editingScheduleId = null;
+
+function openCreateModal() {
+  editingScheduleId = null;
+  document.getElementById('modal-title').textContent = 'Novo Agendamento';
+  document.getElementById('sc-name').value = '';
+  document.getElementById('sc-start').value = '08:00';
+  document.getElementById('sc-end').value = '18:00';
+  document.getElementById('sc-enabled').checked = true;
+  document.getElementById('modal-error').style.display = 'none';
+  document.querySelectorAll('input[name="day"]').forEach(cb => cb.checked = false);
+  if (document.getElementById('sc-playlist').options.length > 0) {
+    document.getElementById('sc-playlist').selectedIndex = 0;
+  }
+  document.getElementById('schedule-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('sc-name').focus(), 100);
+}
+
+function editSchedule(sc) {
+  editingScheduleId = sc.id;
+  document.getElementById('modal-title').textContent = 'Editar Agendamento';
+  document.getElementById('sc-name').value = sc.name;
+  document.getElementById('sc-start').value = sc.start_time;
+  document.getElementById('sc-end').value = sc.end_time;
+  document.getElementById('sc-enabled').checked = sc.enabled !== false;
+  document.getElementById('modal-error').style.display = 'none';
+
+  document.querySelectorAll('input[name="day"]').forEach(cb => {
+    cb.checked = (sc.days || []).includes(cb.value);
+  });
+
+  const plSel = document.getElementById('sc-playlist');
+  for (let opt of plSel.options) {
+    if (opt.value === sc.playlist_id) { opt.selected = true; break; }
+  }
+
+  document.getElementById('schedule-modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('schedule-modal').style.display = 'none';
+  editingScheduleId = null;
+}
+
+async function saveSchedule() {
+  const name = document.getElementById('sc-name').value.trim();
+  const playlist_id = document.getElementById('sc-playlist').value;
+  const start_time = document.getElementById('sc-start').value;
+  const end_time = document.getElementById('sc-end').value;
+  const enabled = document.getElementById('sc-enabled').checked;
+  const days = Array.from(document.querySelectorAll('input[name="day"]:checked')).map(cb => cb.value);
+  const errDiv = document.getElementById('modal-error');
+
+  if (!name) { errDiv.textContent = 'Informe um nome.'; errDiv.style.display = 'block'; return; }
+  if (!playlist_id) { errDiv.textContent = 'Selecione uma playlist.'; errDiv.style.display = 'block'; return; }
+  if (days.length === 0) { errDiv.textContent = 'Selecione pelo menos um dia.'; errDiv.style.display = 'block'; return; }
+  if (start_time >= end_time) { errDiv.textContent = 'Horário de início deve ser anterior ao fim.'; errDiv.style.display = 'block'; return; }
+
+  const body = {name, playlist_id, days, start_time, end_time, enabled};
+  if (editingScheduleId) body.id = editingScheduleId;
+
+  const url = editingScheduleId ? `/api/schedules/${editingScheduleId}` : '/api/schedules';
+  const method = editingScheduleId ? 'PUT' : 'POST';
+
+  const r = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+
+  if (r.ok) {
+    closeModal();
+    window.location.reload();
+  } else {
+    const data = await r.json();
+    errDiv.textContent = data.error || 'Erro ao salvar.';
+    errDiv.style.display = 'block';
+  }
+}
+
+async function deleteSchedule(id, btn) {
+  if (!confirm('Remover este agendamento?')) return;
+  btn.disabled = true;
+  const r = await fetch(`/api/schedules/${id}`, {method: 'DELETE'});
+  if (r.ok) {
+    document.getElementById(`sc-${id}`)?.remove();
+  } else {
+    alert('Erro ao remover.');
+    btn.disabled = false;
+  }
+}
+
+async function saveFallback() {
+  const playlist_id = document.getElementById('fallback-select').value;
+  const r = await fetch('/api/schedules/fallback', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({playlist_id}),
+  });
+  const okDiv = document.getElementById('fallback-ok');
+  if (r.ok) {
+    okDiv.textContent = 'Playlist padrão salva!';
+    okDiv.style.display = 'block';
+    setTimeout(() => okDiv.style.display = 'none', 3000);
+  }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+{% endblock %}

@@ -96,6 +96,7 @@ h3 { font-size: 15px; font-weight: 600; color: var(--text-muted); text-transform
 .badge-neutral  { background: var(--surface2); color: var(--text-muted); }
 .badge-warning  { background: rgba(245,158,11,.15); color: var(--warning); }
 .badge-danger   { background: rgba(239,68,68,.15); color: var(--danger); }
+.badge-info     { background: rgba(79,124,255,.15); color: var(--accent); }
 
 /* ── Buttons ── */
 .btn {
