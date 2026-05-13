@@ -134,27 +134,23 @@ document.getElementById('network-form').addEventListener('submit', async functio
     });
     const data = await r.json();
     if (data.ok) {
-      if (data.reboot_required) {
-        okDiv.textContent = `Configuração aplicada! O dispositivo será reiniciado. Reconnecte por http://${data.hostname}.local após ~30s.`;
-        okDiv.style.display = 'block';
-        setTimeout(() => {
-          fetch('/api/system/reboot', {method:'POST'});
-        }, 3000);
-      } else {
-        okDiv.textContent = `Configuração salva. Novo endereço: http://${data.hostname}.local`;
-        okDiv.style.display = 'block';
-      }
+      okDiv.textContent = `Configuração aplicada! Reiniciando... Reconnecte por http://${data.hostname}.local:8080 após ~30s.`;
+      okDiv.style.display = 'block';
+      btn.disabled = true;
+      btn.textContent = 'Reiniciando...';
+      // Não reabilita o botão — o dispositivo vai reiniciar
     } else {
       errDiv.textContent = data.error || 'Erro ao aplicar configuração.';
       errDiv.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Salvar e aplicar';
     }
   } catch {
     errDiv.textContent = 'Erro de conexão.';
     errDiv.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Salvar e aplicar';
   }
-
-  btn.disabled = false;
-  btn.textContent = 'Salvar e aplicar';
 });
 </script>
 {% endblock %}

@@ -14,6 +14,23 @@
   <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
+<!-- Rotação de tela -->
+<div class="section">
+  <h3>Orientação do monitor</h3>
+  <p class="text-muted" style="margin-bottom:14px">Configure a rotação do conteúdo exibido no monitor conectado via HDMI.</p>
+  <div class="form-group" style="max-width:320px">
+    <label>Rotação</label>
+    <select id="rotation-select">
+      <option value="normal" {% if display_rotation == 'normal' %}selected{% endif %}>Paisagem (padrão)</option>
+      <option value="right" {% if display_rotation == 'right' %}selected{% endif %}>Retrato — girado à direita (90°)</option>
+      <option value="left" {% if display_rotation == 'left' %}selected{% endif %}>Retrato — girado à esquerda (270°)</option>
+    </select>
+  </div>
+  <div id="rotation-ok" class="alert alert-success" style="display:none;margin-top:10px"></div>
+  <div id="rotation-err" class="alert alert-error" style="display:none;margin-top:10px"></div>
+  <button class="btn btn-primary" style="margin-top:8px" onclick="saveRotation()">Aplicar rotação</button>
+</div>
+
 <!-- Reboot -->
 <div class="section">
   <h3>Sistema</h3>
@@ -63,6 +80,32 @@
 </div>
 
 <script>
+async function saveRotation() {
+  const okDiv = document.getElementById('rotation-ok');
+  const errDiv = document.getElementById('rotation-err');
+  const rotation = document.getElementById('rotation-select').value;
+  okDiv.style.display = 'none';
+  errDiv.style.display = 'none';
+  try {
+    const r = await fetch('/api/player/rotation', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rotation}),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      okDiv.textContent = 'Rotação aplicada! O monitor será atualizado em instantes.';
+      okDiv.style.display = 'block';
+    } else {
+      errDiv.textContent = data.error || 'Erro ao aplicar rotação.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
 let currentAction = null;
 
 function confirmReboot() {

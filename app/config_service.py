@@ -105,7 +105,7 @@ class ConfigService:
             network=u.network if u.network.mode != "dhcp" or u.network.ip else d.network,
             server=u.server if u.server.enabled else d.server,
             media=d.media,
-            player=d.player,
+            player=u.player if u.player is not None else d.player,
             auth=d.auth,
             manual_mode=u.manual_mode,
             last_media=u.last_media,

@@ -6,11 +6,11 @@
   "default_hostname": "signage-maggiore",
   "local_web_port": 8080,
   "network": {
-    "mode": "dhcp",
-    "ip": "",
-    "mask": "",
-    "gateway": "",
-    "dns": []
+    "mode": "static",
+    "ip": "192.168.100.100",
+    "mask": "255.255.255.0",
+    "gateway": "192.168.100.1",
+    "dns": ["8.8.8.8", "8.8.4.4"]
   },
   "server": {
     "enabled": false,
@@ -27,7 +27,8 @@
   "player": {
     "engine": "mpv",
     "loop_default": true,
-    "fullscreen": true
+    "fullscreen": true,
+    "display_rotation": "normal"
   },
   "auth": {
     "session_timeout_minutes": 60,

@@ -202,7 +202,8 @@ def apply_dhcp(interface: Optional[str] = None) -> tuple[bool, str]:
              "type", "ethernet",
              "con-name", NM_CONN_NAME,
              "ifname", iface,
-             "ipv4.method", "auto"],
+             "ipv4.method", "auto",
+             "ipv4.link-local", "enabled"],
             capture_output=True, text=True, timeout=10, check=True,
         )
         subprocess.run(

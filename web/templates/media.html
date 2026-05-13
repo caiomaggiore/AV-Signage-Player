@@ -62,15 +62,27 @@
 <div class="section">
   <h3>Arquivos locais</h3>
   {% if files %}
-  <table class="media-table">
+  <table class="media-table" id="media-table">
     <thead>
-      <tr><th>Nome</th><th>Tamanho</th><th>Ações</th></tr>
+      <tr>
+        <th class="sortable" data-col="name" onclick="sortTable('name')">
+          Nome <span class="sort-icon" id="icon-name">↕</span>
+        </th>
+        <th class="sortable" data-col="size" onclick="sortTable('size')" style="width:110px">
+          Tamanho <span class="sort-icon" id="icon-size">↕</span>
+        </th>
+        <th class="sortable" data-col="date" onclick="sortTable('date')" style="width:160px">
+          Data <span class="sort-icon" id="icon-date">↕</span>
+        </th>
+        <th style="width:160px">Ações</th>
+      </tr>
     </thead>
     <tbody id="media-list">
       {% for f in files %}
-      <tr id="row-{{ loop.index }}">
+      <tr data-name="{{ f.name }}" data-size="{{ f.size_bytes }}" data-ts="{{ f.modified_ts }}">
         <td class="mono">{{ f.name }}</td>
         <td class="text-muted">{{ f.size_mb }} MB</td>
+        <td class="text-muted" style="font-size:13px">{{ f.modified_str }}</td>
         <td>
           <div class="btn-group">
             <button class="btn btn-primary btn-sm" onclick="playMedia('{{ f.name }}')">Play</button>
@@ -217,5 +229,41 @@ document.getElementById('upload-form').addEventListener('submit', async function
 
   xhr.send(formData);
 });
+
+// --- Ordenação de colunas ---
+let sortState = {col: null, asc: true};
+
+function sortTable(col) {
+  const tbody = document.getElementById('media-list');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+
+  sortState.asc = (sortState.col === col) ? !sortState.asc : true;
+  sortState.col = col;
+
+  rows.sort((a, b) => {
+    let va, vb;
+    if (col === 'name') {
+      va = a.dataset.name.toLowerCase();
+      vb = b.dataset.name.toLowerCase();
+      return sortState.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    } else if (col === 'size') {
+      va = parseFloat(a.dataset.size);
+      vb = parseFloat(b.dataset.size);
+    } else if (col === 'date') {
+      va = parseFloat(a.dataset.ts);
+      vb = parseFloat(b.dataset.ts);
+    }
+    return sortState.asc ? va - vb : vb - va;
+  });
+
+  rows.forEach(r => tbody.appendChild(r));
+
+  // Atualiza ícones
+  ['name', 'size', 'date'].forEach(c => {
+    const el = document.getElementById('icon-' + c);
+    if (el) el.textContent = c === col ? (sortState.asc ? '↑' : '↓') : '↕';
+  });
+}
 </script>
 {% endblock %}

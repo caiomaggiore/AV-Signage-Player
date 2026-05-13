@@ -100,7 +100,24 @@ log "Verificando NetworkManager..."
 systemctl enable NetworkManager
 systemctl start NetworkManager 2>/dev/null || true
 
-# ── 9. Iniciar serviço ──────────────────────────────────────────────────────
+# ── 9. Suprimir terminal Linux no HDMI ─────────────────────────────────────
+log "Desabilitando terminal de login no HDMI (getty@tty1)..."
+systemctl disable getty@tty1 2>/dev/null || warn "Não foi possível desabilitar getty@tty1."
+systemctl stop getty@tty1 2>/dev/null || true
+
+log "Suprimindo mensagens de boot na saída de vídeo..."
+CMDLINE="/boot/firmware/cmdline.txt"
+if [ -f "$CMDLINE" ]; then
+    # Adicionar parâmetros se ainda não presentes
+    if ! grep -q "vt.global_cursor_default=0" "$CMDLINE"; then
+        sed -i 's/$/ quiet loglevel=0 vt.global_cursor_default=0 logo.nologo/' "$CMDLINE"
+        log "Parâmetros de boot atualizados em $CMDLINE."
+    fi
+else
+    warn "Arquivo $CMDLINE não encontrado. Mensagens de boot permanecerão visíveis."
+fi
+
+# ── 10. Iniciar serviço ─────────────────────────────────────────────────────
 log "Iniciando AV Signage Player..."
 systemctl start "$SERVICE_NAME" || warn "Serviço não iniciou. Verifique: journalctl -u $SERVICE_NAME -f"
 

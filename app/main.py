@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import asyncio
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -402,6 +403,32 @@ async def api_loop(request: Request):
     return JSONResponse({"ok": True, **player_service.status()})
 
 
+@app.post("/api/player/rotation")
+async def api_rotation(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+    body = await request.json()
+    rotation = body.get("rotation", "normal")
+    if rotation not in ("normal", "left", "right"):
+        return JSONResponse({"error": "Valor inválido. Use: normal, left, right"}, status_code=400)
+
+    from app.models import PlayerConfig
+    user = config_service._user
+    current_player = user.player if user.player is not None else config_service._defaults.player
+    updated_player = current_player.model_copy(update={"display_rotation": rotation})
+    user.player = updated_player
+    config_service.save_user_config(user)
+
+    # Reinicia o player/tela de status com a nova rotação imediatamente
+    if player_service.is_playing():
+        player_service.play(player_service.status()["current_file"])
+    else:
+        screen_service.show_status_from_config()
+
+    return JSONResponse({"ok": True, "rotation": rotation})
+
+
 # ---------------------------------------------------------------------------
 # Páginas — Settings
 # ---------------------------------------------------------------------------
@@ -415,6 +442,7 @@ async def settings_page(request: Request, msg: str = "", error: str = ""):
         "request": request,
         "msg": msg,
         "error": error,
+        "display_rotation": config_service.config.player.display_rotation,
     })
 
 
@@ -467,6 +495,7 @@ async def api_reset(request: Request):
     result = reset_service.reset_config(stop_player_fn=player_service.stop)
     auth_service.reset_password()
     config_service.load()
+    screen_service.show_status_from_config()
     return JSONResponse(result)
 
 
@@ -481,6 +510,7 @@ async def api_factory(request: Request):
     result = reset_service.factory_reset(stop_player_fn=player_service.stop)
     auth_service.reset_password()
     config_service.load()
+    screen_service.show_status_from_config()
     return JSONResponse(result)
 
 
@@ -552,11 +582,15 @@ async def api_network_apply(request: Request):
     # Promover pending para user_config
     config_service.promote_pending()
 
+    # Agendar reboot no servidor após 2s — garante que a resposta HTTP
+    # chegue ao browser antes do sistema reiniciar
+    asyncio.get_event_loop().call_later(2, reset_service.reboot)
+
     return JSONResponse({
         "ok": True,
         "hostname": hostname or config_service.config.hostname,
         "mode": mode,
-        "reboot_required": mode == "static",
+        "reboot_required": True,
     })
 
 

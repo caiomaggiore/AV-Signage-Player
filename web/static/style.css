@@ -200,6 +200,16 @@ body.login-page {
   vertical-align: middle;
 }
 .media-table tr:last-child td { border-bottom: none; }
+.media-table td { white-space: nowrap; }
+.media-table td:first-child { white-space: normal; word-break: break-all; }
+.media-table .btn-group { margin-top: 0; flex-wrap: nowrap; }
+.media-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.media-table th.sortable:hover { color: var(--text); }
+.sort-icon { font-style: normal; margin-left: 4px; opacity: .5; }
 .btn-sm { padding: 5px 12px; font-size: 13px; }
 
 /* ── Progress bar ── */

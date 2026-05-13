@@ -33,10 +33,21 @@ class MediaConfig(BaseModel):
     max_upload_mb: int = 2048
 
 
+ROTATION_VALUES = ("normal", "left", "right")
+
+
 class PlayerConfig(BaseModel):
     engine: str = "mpv"
     loop_default: bool = True
     fullscreen: bool = True
+    display_rotation: str = "normal"
+
+    @field_validator("display_rotation")
+    @classmethod
+    def rotation_must_be_valid(cls, v: str) -> str:
+        if v not in ROTATION_VALUES:
+            raise ValueError(f"display_rotation deve ser um de: {ROTATION_VALUES}")
+        return v
 
 
 class AuthConfig(BaseModel):
@@ -65,6 +76,7 @@ class UserConfig(BaseModel):
     hostname: str = ""
     network: NetworkConfig = NetworkConfig()
     server: ServerConfig = ServerConfig()
+    player: Optional[PlayerConfig] = None
     manual_mode: bool = False
     last_media: str = ""
 
