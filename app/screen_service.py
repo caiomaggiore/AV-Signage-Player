@@ -178,6 +178,7 @@ class ScreenService:
             "--hwdec=no",
             "--image-display-duration=inf",
             "--loop-file=inf",
+            f"--video-rotate={rotation}",
             str(STATUS_IMAGE),
         ]
         self._process = subprocess.Popen(
