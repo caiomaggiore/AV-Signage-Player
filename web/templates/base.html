@@ -20,6 +20,10 @@
       <form action="/logout" method="post" style="display:inline">
         <button type="submit" class="btn-link">Sair</button>
       </form>
+      <span id="conn-dot" title="Verificando conexão…"
+            style="display:inline-block;width:9px;height:9px;border-radius:50%;
+                   background:#6b7280;margin-left:14px;vertical-align:middle;
+                   transition:background .4s"></span>
     </div>
   </nav>
   {% endblock %}
@@ -29,5 +33,31 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script>
+  (function () {
+    const dot = document.getElementById('conn-dot');
+    let _last = null;
+
+    function setDot(ok) {
+      if (_last === ok) return;
+      _last = ok;
+      dot.style.background = ok ? '#22c55e' : '#ef4444';
+      dot.title = ok ? 'Conectado' : 'Sem conexão — tentando reconectar…';
+    }
+
+    async function ping() {
+      try {
+        const r = await fetch('/health', { cache: 'no-store' });
+        setDot(r.ok);
+      } catch (e) {
+        setDot(false);
+      }
+    }
+
+    ping();
+    setInterval(ping, 10000);
+  })();
+  </script>
+  {% block extra_scripts %}{% endblock %}
 </body>
 </html>

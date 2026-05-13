@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-header">
   <h2>{{ display_name }}</h2>
-  <span class="badge badge-{{ 'success' if player_status == 'playing' else 'neutral' }}">
+  <span id="player-badge" class="badge badge-{{ 'success' if player_status == 'playing' else 'neutral' }}">
     {{ 'Reproduzindo' if player_status == 'playing' else 'Parado' }}
   </span>
 </div>
@@ -17,7 +17,7 @@
   </div>
   <div class="stat-card">
     <div class="stat-label">Endereço IP</div>
-    <div class="stat-value">{{ ip }}</div>
+    <div id="stat-ip" class="stat-value">{{ ip }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">MAC</div>
@@ -29,15 +29,15 @@
   </div>
   <div class="stat-card">
     <div class="stat-label">Temperatura</div>
-    <div class="stat-value">{{ cpu_temp }}</div>
+    <div id="stat-temp" class="stat-value">{{ cpu_temp }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Disco livre</div>
-    <div class="stat-value">{{ disk.free_gb }} GB <span class="text-muted">({{ disk.percent_used }}% usado)</span></div>
+    <div id="stat-disk" class="stat-value">{{ disk.free_gb }} GB <span class="text-muted">({{ disk.percent_used }}% usado)</span></div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Uptime</div>
-    <div class="stat-value">{{ uptime }}</div>
+    <div id="stat-uptime" class="stat-value">{{ uptime }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Versão</div>
@@ -48,11 +48,13 @@
 <div class="section">
   <h3>Player</h3>
   <div class="player-status">
-    {% if last_media %}
-      <p>Arquivo atual: <strong>{{ last_media }}</strong></p>
-    {% else %}
-      <p class="text-muted">Nenhuma mídia selecionada.</p>
-    {% endif %}
+    <p id="last-media">
+      {% if last_media %}
+        Arquivo atual: <strong>{{ last_media }}</strong>
+      {% else %}
+        <span class="text-muted">Nenhuma mídia selecionada.</span>
+      {% endif %}
+    </p>
     <div class="btn-group">
       <a href="/media" class="btn btn-primary">Gerenciar Mídias</a>
     </div>
@@ -74,4 +76,50 @@
   <h3>Hardware</h3>
   <p class="text-muted">{{ hardware_model }} &nbsp;·&nbsp; ID: <span class="mono">{{ device_id }}</span></p>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  async function refreshStatus() {
+    let data;
+    try {
+      const r = await fetch('/api/status', { cache: 'no-store' });
+      if (!r.ok) return;
+      data = await r.json();
+    } catch (e) { return; }
+
+    const badge = document.getElementById('player-badge');
+    if (badge) {
+      const playing = data.player && data.player.playing;
+      badge.className = 'badge badge-' + (playing ? 'success' : 'neutral');
+      badge.textContent = playing ? 'Reproduzindo' : 'Parado';
+    }
+
+    const mediaEl = document.getElementById('last-media');
+    if (mediaEl) {
+      const f = data.player && data.player.current_file;
+      mediaEl.innerHTML = f
+        ? 'Arquivo atual: <strong>' + f + '</strong>'
+        : '<span class="text-muted">Nenhuma mídia selecionada.</span>';
+    }
+
+    const ip = document.getElementById('stat-ip');
+    if (ip && data.ip) ip.textContent = data.ip;
+
+    const temp = document.getElementById('stat-temp');
+    if (temp && data.cpu_temp) temp.textContent = data.cpu_temp;
+
+    const uptime = document.getElementById('stat-uptime');
+    if (uptime && data.uptime) uptime.textContent = data.uptime;
+
+    const disk = document.getElementById('stat-disk');
+    if (disk && data.disk)
+      disk.innerHTML = data.disk.free_gb + ' GB <span class="text-muted">(' + data.disk.percent_used + '% usado)</span>';
+  }
+
+  refreshStatus();
+  setInterval(refreshStatus, 10000);
+})();
+</script>
 {% endblock %}
