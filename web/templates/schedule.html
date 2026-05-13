@@ -194,7 +194,10 @@ function closeModal() {
   editingScheduleId = null;
 }
 
+let _saving = false;
+
 async function saveSchedule() {
+  if (_saving) return;
   const name = document.getElementById('sc-name').value.trim();
   const playlist_id = document.getElementById('sc-playlist').value;
   const start_time = document.getElementById('sc-start').value;
@@ -208,25 +211,34 @@ async function saveSchedule() {
   if (days.length === 0) { errDiv.textContent = 'Selecione pelo menos um dia.'; errDiv.style.display = 'block'; return; }
   if (start_time >= end_time) { errDiv.textContent = 'Horário de início deve ser anterior ao fim.'; errDiv.style.display = 'block'; return; }
 
+  _saving = true;
+  const saveBtn = document.querySelector('#schedule-modal .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
+
   const body = {name, playlist_id, days, start_time, end_time, enabled};
   if (editingScheduleId) body.id = editingScheduleId;
 
   const url = editingScheduleId ? `/api/schedules/${editingScheduleId}` : '/api/schedules';
   const method = editingScheduleId ? 'PUT' : 'POST';
 
-  const r = await fetch(url, {
-    method,
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
+  try {
+    const r = await fetch(url, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
 
-  if (r.ok) {
-    closeModal();
-    window.location.reload();
-  } else {
-    const data = await r.json();
-    errDiv.textContent = data.error || 'Erro ao salvar.';
-    errDiv.style.display = 'block';
+    if (r.ok) {
+      closeModal();
+      window.location.reload();
+    } else {
+      const data = await r.json();
+      errDiv.textContent = data.error || 'Erro ao salvar.';
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    _saving = false;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Salvar'; }
   }
 }
 

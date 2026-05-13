@@ -48,7 +48,7 @@
       <div>
         <strong>{{ pl.name }}</strong>
         <span class="text-muted" style="font-size:13px; margin-left:8px">
-          {{ pl.items|length }} item(s)
+          {{ pl['items']|length }} item(s)
           {% if pl.loop %} · Loop{% endif %}
         </span>
       </div>
@@ -58,14 +58,14 @@
         <button class="btn btn-danger btn-sm" onclick="deletePlaylist('{{ pl.id }}', this)">Remover</button>
       </div>
     </div>
-    {% if pl.items %}
+    {% if pl['items'] %}
     <ul class="playlist-items">
-      {% for item in pl.items %}
+      {% for item in pl['items'] %}
       <li>
-        <span class="badge {{ 'badge-info' if item.type == 'image' else 'badge-neutral' }}">{{ 'IMG' if item.type == 'image' else 'VID' }}</span>
-        <span class="mono" style="font-size:13px">{{ item.filename }}</span>
-        {% if item.type == 'image' %}
-          <span class="text-muted" style="font-size:12px"> · {{ item.duration_seconds }}s</span>
+        <span class="badge {{ 'badge-info' if item['type'] == 'image' else 'badge-neutral' }}">{{ 'IMG' if item['type'] == 'image' else 'VID' }}</span>
+        <span class="mono" style="font-size:13px">{{ item['filename'] }}</span>
+        {% if item['type'] == 'image' %}
+          <span class="text-muted" style="font-size:12px"> · {{ item['duration_seconds'] }}s</span>
         {% endif %}
       </li>
       {% endfor %}
@@ -240,7 +240,10 @@ function renderItemsList() {
   `).join('');
 }
 
+let _saving = false;
+
 async function savePlaylist() {
+  if (_saving) return;
   const name = document.getElementById('pl-name').value.trim();
   const loop = document.getElementById('pl-loop').checked;
   const errDiv = document.getElementById('modal-error');
@@ -251,25 +254,34 @@ async function savePlaylist() {
     return;
   }
 
+  _saving = true;
+  const saveBtn = document.querySelector('#playlist-modal .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
+
   const body = {name, loop, items: plItems};
   if (editingPlaylistId) body.id = editingPlaylistId;
 
   const url = editingPlaylistId ? `/api/playlists/${editingPlaylistId}` : '/api/playlists';
   const method = editingPlaylistId ? 'PUT' : 'POST';
 
-  const r = await fetch(url, {
-    method,
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
+  try {
+    const r = await fetch(url, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
 
-  if (r.ok) {
-    closeModal();
-    window.location.reload();
-  } else {
-    const data = await r.json();
-    errDiv.textContent = data.error || 'Erro ao salvar.';
-    errDiv.style.display = 'block';
+    if (r.ok) {
+      closeModal();
+      window.location.reload();
+    } else {
+      const data = await r.json();
+      errDiv.textContent = data.error || 'Erro ao salvar.';
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    _saving = false;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Salvar'; }
   }
 }
 
