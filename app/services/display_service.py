@@ -247,31 +247,45 @@ class DisplayService:
         self._launch_mpv(rotation)
         logger.info("Tela de status exibida no HDMI (rotation=%d°, fallback=%s).", rotation, fallback_mode)
 
-    def show_status_from_config(self) -> None:
+    def render_status_image(self) -> Optional[Path]:
+        """Gera a imagem de status e retorna o path. NÃO inicia mpv."""
         try:
             from app.services.config_service import config_service
             from app.services.device_service import get_ip
 
-            cfg = config_service.config
+            cfg      = config_service.config
             identity = config_service.identity
-            pairing = config_service.pairing
-            state = config_service.state
+            pairing  = config_service.pairing
+            state    = config_service.state
 
-            ip = get_ip() or "N/A"
+            ip       = get_ip() or "N/A"
             fallback = (state.network_mode == "fallback")
+            rotation = _get_rotation()
 
-            self.show_status(
+            if _generate_image(
                 display_name=cfg.display_name,
                 hostname=cfg.hostname,
                 ip=ip,
                 pairing_code=pairing.pairing_code,
                 version=identity.software_version,
+                rotation=rotation,
                 fallback_mode=fallback,
-            )
+            ):
+                return STATUS_IMAGE
+        except Exception as e:
+            logger.error("Erro ao renderizar imagem de status: %s", e)
+        return None
+
+    def show_status_from_config(self) -> None:
+        """Delega para player_service.play_standby() para exibir via mpv persistente."""
+        try:
+            from app.services.player_service import player_service
+            player_service.play_standby()
         except Exception as e:
             logger.error("Erro ao exibir status automático: %s", e)
 
     def hide(self) -> None:
+        """Mata processo mpv próprio (se houver). Na nova arquitetura é no-op."""
         self._kill()
 
     def is_showing(self) -> bool:

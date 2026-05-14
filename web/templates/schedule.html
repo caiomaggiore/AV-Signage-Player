@@ -12,6 +12,26 @@
   Define qual playlist é tocada em cada dia e horário. Quando não há agendamento ativo, a playlist padrão é usada.
 </p>
 
+<!-- Mídia de fundo (standby) -->
+<div class="section">
+  <h3>Mídia de fundo (standby)</h3>
+  <p class="text-muted" style="font-size:13px; margin-bottom:12px">
+    Exibida em loop quando nenhuma playlist está tocando. Se vazio, mostra a tela de status com IP e QR Code.
+  </p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <select id="bg-select" style="flex:1; max-width:360px">
+      <option value="">— Nenhuma (exibir tela de status) —</option>
+      {% for f in files %}
+      <option value="{{ f.name }}" {% if f.name == bg_media %}selected{% endif %}>
+        {{ f.name }} ({{ 'Imagem' if f.type == 'image' else 'Vídeo' }})
+      </option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-secondary" onclick="saveBgMedia()">Salvar</button>
+  </div>
+  <div id="bg-ok" class="alert alert-success" style="display:none; margin-top:8px"></div>
+</div>
+
 <!-- Playlist padrão (fallback) -->
 <div class="section">
   <h3>Playlist padrão (fallback)</h3>
@@ -251,6 +271,23 @@ async function deleteSchedule(id, btn) {
   } else {
     alert('Erro ao remover.');
     btn.disabled = false;
+  }
+}
+
+async function saveBgMedia() {
+  const bg_media = document.getElementById('bg-select').value;
+  const r = await fetch('/api/player/standby', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({bg_media}),
+  });
+  const okDiv = document.getElementById('bg-ok');
+  if (r.ok) {
+    okDiv.textContent = bg_media ? `Mídia de fundo definida: ${bg_media}` : 'Mídia de fundo removida (exibindo tela de status).';
+    okDiv.style.display = 'block';
+    setTimeout(() => { okDiv.style.display = 'none'; }, 4000);
+  } else {
+    alert('Erro ao salvar mídia de fundo.');
   }
 }
 

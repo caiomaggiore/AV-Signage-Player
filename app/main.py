@@ -76,7 +76,8 @@ def _check_schedule() -> None:
                     playlist_id=pl["id"],
                     items=pl["items"],
                     loop=pl.get("loop", True),
-                    transition=pl.get("transition", "cut"),
+                    stinger=pl.get("stinger", ""),
+                    stinger_duration=pl.get("stinger_duration", 1),
                     name=pl.get("name", ""),
                 )
                 config_service.save_state(
@@ -97,14 +98,15 @@ def _check_schedule() -> None:
                     playlist_id=pl["id"],
                     items=pl["items"],
                     loop=pl.get("loop", True),
-                    transition=pl.get("transition", "cut"),
+                    stinger=pl.get("stinger", ""),
+                    stinger_duration=pl.get("stinger_duration", 1),
                     name=pl.get("name", ""),
                 )
                 config_service.save_state(last_playlist=fallback_id, active_schedule_id="")
                 logger.info("Playlist padrão iniciada: %s", fallback_id)
     else:
         if not player_service.is_playing():
-            display_service.show_status_from_config()
+            player_service.play_standby()
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +123,7 @@ async def lifespan(app: FastAPI):
     # Verificar agendamento imediatamente ao iniciar
     await asyncio.sleep(0)
     _check_schedule()
-
-    if not player_service.is_playing():
-        display_service.show_status_from_config()
+    # play_standby já é chamado por _check_schedule quando não há conteúdo agendado
 
     _schedule_task = asyncio.create_task(_schedule_runner())
     logger.info("AV Signage Player v0.2 iniciado.")
@@ -131,7 +131,6 @@ async def lifespan(app: FastAPI):
     if _schedule_task:
         _schedule_task.cancel()
     player_service.stop(show_status=False)
-    display_service.hide()
 
 
 app = FastAPI(title="AV Signage Player", version="0.2.0", lifespan=lifespan)
@@ -329,15 +328,19 @@ async def schedule_page(request: Request):
     if redirect:
         return redirect
 
-    schedules = schedule_service.list_schedules()
-    playlists = playlist_service.list_playlists()
+    schedules   = schedule_service.list_schedules()
+    playlists   = playlist_service.list_playlists()
     fallback_id = schedule_service.get_fallback_playlist_id()
+    files       = media_service.list_media()
+    bg_media    = config_service.config.bg_media
 
     return templates.TemplateResponse("schedule.html", {
-        "request": request,
-        "schedules": schedules,
-        "playlists": playlists,
+        "request":            request,
+        "schedules":          schedules,
+        "playlists":          playlists,
         "fallback_playlist_id": fallback_id,
+        "files":              files,
+        "bg_media":           bg_media,
     })
 
 
@@ -849,11 +852,33 @@ async def api_play_playlist(request: Request, playlist_id: str):
         playlist_id=pl["id"],
         items=pl["items"],
         loop=pl.get("loop", True),
-        transition=pl.get("transition", "cut"),
+        stinger=pl.get("stinger", ""),
+        stinger_duration=pl.get("stinger_duration", 1),
         name=pl.get("name", ""),
     )
     config_service.save_state(manual_override=True, last_playlist=playlist_id)
     return JSONResponse({"ok": True, **player_service.status()})
+
+
+@app.get("/api/player/standby")
+async def api_get_standby(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+    return JSONResponse({"bg_media": config_service.config.bg_media})
+
+
+@app.post("/api/player/standby")
+async def api_set_standby(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+    body = await request.json()
+    bg = body.get("bg_media", "")
+    if bg and not (Path("/opt/av-signage/media/local") / bg).exists():
+        return JSONResponse({"error": "Arquivo não encontrado."}, status_code=400)
+    config_service.save_bg_media(bg)
+    return JSONResponse({"ok": True, "bg_media": bg})
 
 
 # ---------------------------------------------------------------------------

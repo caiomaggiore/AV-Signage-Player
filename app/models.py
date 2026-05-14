@@ -83,6 +83,7 @@ class UserConfig(BaseModel):
     player: Optional[PlayerConfig] = None
     manual_mode: bool = False
     last_media: str = ""
+    bg_media: str = ""
 
 
 class MergedConfig(BaseModel):
@@ -100,6 +101,7 @@ class MergedConfig(BaseModel):
     auth: AuthConfig
     manual_mode: bool
     last_media: str
+    bg_media: str = ""
 
 
 class IdentityConfig(BaseModel):
@@ -137,22 +139,13 @@ class PlaylistItem(BaseModel):
         return v
 
 
-TRANSITIONS = ("cut", "fade")
-
-
 class Playlist(BaseModel):
     id: str
     name: str
     loop: bool = True
-    transition: str = "cut"
+    stinger: str = ""
+    stinger_duration: int = 1
     items: List[PlaylistItem] = []
-
-    @field_validator("transition")
-    @classmethod
-    def transition_must_be_valid(cls, v: str) -> str:
-        if v not in TRANSITIONS:
-            raise ValueError(f"transition deve ser um de: {TRANSITIONS}")
-        return v
 
 
 class PlaylistsConfig(BaseModel):

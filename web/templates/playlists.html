@@ -92,17 +92,30 @@
       <input type="text" id="pl-name" placeholder="Ex: Recepção Principal" autocomplete="off">
     </div>
 
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
       <div style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="pl-loop" checked style="width:auto">
         <label for="pl-loop" style="margin:0;font-size:14px">Loop</label>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <label style="margin:0;font-size:14px;color:var(--text-muted)">Transição:</label>
-        <select id="pl-transition" style="width:auto;padding:6px 10px">
-          <option value="cut">Corte direto</option>
-          <option value="fade">Fade to black</option>
+    </div>
+
+    <div class="form-group">
+      <label>Clip de transição (stinger)</label>
+      <p class="text-muted" style="font-size:12px;margin-bottom:8px">
+        Arquivo inserido entre cada item. Pode ser um PNG preto, vídeo curto ou animação de abertura. Deixe vazio para corte direto.
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="pl-stinger" style="flex:1">
+          <option value="">— Sem transição (corte direto) —</option>
+          {% for f in files %}
+          <option value="{{ f.name }}">{{ f.name }} ({{ 'Imagem' if f.type == 'image' else 'Vídeo' }})</option>
+          {% endfor %}
         </select>
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="margin:0;font-size:13px;color:var(--text-muted);white-space:nowrap">Dur. (s):</label>
+          <input type="number" id="pl-stinger-duration" value="1" min="0" max="60" style="width:70px">
+          <span style="font-size:12px;color:var(--text-muted)">(só imagens)</span>
+        </div>
       </div>
     </div>
 
@@ -184,7 +197,8 @@ function openCreateModal() {
   document.getElementById('modal-title').textContent = 'Nova Playlist';
   document.getElementById('pl-name').value = '';
   document.getElementById('pl-loop').checked = true;
-  document.getElementById('pl-transition').value = 'cut';
+  document.getElementById('pl-stinger').value = '';
+  document.getElementById('pl-stinger-duration').value = 1;
   document.getElementById('modal-error').style.display = 'none';
   renderItemsList();
   document.getElementById('playlist-modal').style.display = 'flex';
@@ -197,7 +211,8 @@ function editPlaylist(pl) {
   document.getElementById('modal-title').textContent = 'Editar Playlist';
   document.getElementById('pl-name').value = pl.name;
   document.getElementById('pl-loop').checked = pl.loop !== false;
-  document.getElementById('pl-transition').value = pl.transition || 'cut';
+  document.getElementById('pl-stinger').value = pl.stinger || '';
+  document.getElementById('pl-stinger-duration').value = pl.stinger_duration || 1;
   document.getElementById('modal-error').style.display = 'none';
   renderItemsList();
   document.getElementById('playlist-modal').style.display = 'flex';
@@ -257,7 +272,8 @@ async function savePlaylist() {
   if (_saving) return;
   const name = document.getElementById('pl-name').value.trim();
   const loop = document.getElementById('pl-loop').checked;
-  const transition = document.getElementById('pl-transition').value;
+  const stinger = document.getElementById('pl-stinger').value;
+  const stinger_duration = parseInt(document.getElementById('pl-stinger-duration').value) || 1;
   const errDiv = document.getElementById('modal-error');
 
   if (!name) {
@@ -270,7 +286,7 @@ async function savePlaylist() {
   const saveBtn = document.querySelector('#playlist-modal .btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Salvando...'; }
 
-  const body = {name, loop, transition, items: plItems};
+  const body = {name, loop, stinger, stinger_duration, items: plItems};
   if (editingPlaylistId) body.id = editingPlaylistId;
 
   const url = editingPlaylistId ? `/api/playlists/${editingPlaylistId}` : '/api/playlists';

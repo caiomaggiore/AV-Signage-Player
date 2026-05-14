@@ -114,6 +114,7 @@ class ConfigService:
             auth=d.auth,
             manual_mode=u.manual_mode,
             last_media=u.last_media,
+            bg_media=u.bg_media,
         )
 
     def _load_identity(self) -> IdentityConfig:
@@ -196,6 +197,13 @@ class ConfigService:
             _save_json(USER_CONFIG_FILE, self._user.model_dump())
             if self._merged:
                 self._merged.last_media = filename
+
+    def save_bg_media(self, filename: str) -> None:
+        if self._user:
+            self._user.bg_media = filename
+            _save_json(USER_CONFIG_FILE, self._user.model_dump())
+            if self._merged:
+                self._merged.bg_media = filename
 
     def save_state(self, **kwargs) -> None:
         current = self.state

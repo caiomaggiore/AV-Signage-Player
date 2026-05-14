@@ -19,8 +19,7 @@ CACHE_DIR   = Path("/opt/av-signage/media/cache")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ROTATION_DEGREES = {"normal": 0, "right": 90, "left": 270}
 SOCKET_PATH = "/tmp/mpvsocket"
-BLACK_PNG   = CACHE_DIR / "black.png"
-FADE_SECS   = 0.45   # duration of black frame for fade transition
+EDL_PATH    = Path("/tmp/av_signage_playlist.edl")
 
 
 def _get_rotation() -> int:
@@ -36,16 +35,14 @@ def _is_image(filename: str) -> bool:
     return Path(filename).suffix.lower() in IMAGE_EXTENSIONS
 
 
-def _ensure_black_png() -> None:
-    """Generate a 1920×1080 black PNG used for fade transitions."""
-    if BLACK_PNG.exists():
-        return
-    try:
-        from PIL import Image
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (1920, 1080), (0, 0, 0)).save(str(BLACK_PNG))
-    except Exception as e:
-        logger.warning("Não foi possível gerar black.png: %s", e)
+def _edl_entry(path: Path, duration: Optional[float] = None) -> str:
+    """Return one EDL v0 line using %N% encoding for any filename."""
+    p = str(path)
+    encoded_len = len(p.encode("utf-8"))
+    entry = f"%{encoded_len}%{p}"
+    if duration is not None:
+        entry += f",,{duration}"
+    return entry
 
 
 class PlayerService:
@@ -62,24 +59,22 @@ class PlayerService:
         self._playlist_id: str = ""
         self._playlist_name: str = ""
         self._playing_playlist: bool = False
-        self._transition: str = "cut"
+        self._stinger: str = ""
+        self._stinger_valid: bool = False
 
-        # Monitor thread
+        # Monitor
         self._monitor_thread: Optional[threading.Thread] = None
         self._monitoring: bool = False
-        self._transitioning: bool = False  # true during fade black frame
-
-        _ensure_black_png()
 
     def set_screen_service(self, display: "DisplayService") -> None:
         self._display = display
 
     # -------------------------------------------------------------------------
-    # IPC helpers
+    # Persistent mpv daemon
     # -------------------------------------------------------------------------
 
     def _ensure_mpv(self) -> None:
-        """Start a persistent mpv daemon if not already running."""
+        """Start persistent mpv daemon if not running."""
         if self._process and self._process.poll() is None:
             return
         Path(SOCKET_PATH).unlink(missing_ok=True)
@@ -91,23 +86,20 @@ class PlayerService:
             "--no-border", "--no-osc", "--no-input-terminal",
             f"--video-rotate={rotation}",
             "--idle=yes",
+            "--image-display-duration=inf",   # safe default; EDL overrides per-item
             f"--input-ipc-server={SOCKET_PATH}",
         ]
-        if self._display:
-            self._display.hide()
         self._process = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
-        # Wait until IPC socket is ready
-        for _ in range(50):
+        for _ in range(60):
             if Path(SOCKET_PATH).exists():
                 time.sleep(0.05)
                 break
             time.sleep(0.1)
-        logger.info("mpv daemon iniciado (IPC: %s).", SOCKET_PATH)
+        logger.info("mpv daemon iniciado.")
 
     def _ipc(self, *args) -> Optional[dict]:
-        """Send a JSON IPC command to the running mpv daemon."""
         try:
             with _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM) as s:
                 s.settimeout(2)
@@ -133,7 +125,7 @@ class PlayerService:
         return None
 
     def _kill(self) -> None:
-        """Terminate the persistent mpv daemon completely."""
+        """Terminate mpv daemon completely (used for shutdown only)."""
         self._monitoring = False
         if self._process and self._process.poll() is None:
             self._process.terminate()
@@ -146,10 +138,36 @@ class PlayerService:
         Path(SOCKET_PATH).unlink(missing_ok=True)
 
     # -------------------------------------------------------------------------
-    # Single file playback
+    # EDL generation
     # -------------------------------------------------------------------------
 
-    def play(self, filename: str, loop: Optional[bool] = None, duration_seconds: int = 10) -> None:
+    def _generate_edl(self, items: List[dict], stinger: str = "",
+                      stinger_duration: int = 1) -> Path:
+        """Write an mpv EDL v0 file for the given playlist items."""
+        stinger_path = MEDIA_DIR / stinger if stinger else None
+        stinger_ok   = bool(stinger_path and stinger_path.exists())
+
+        lines = ["# mpv EDL v0"]
+        for item in items:
+            path    = MEDIA_DIR / item["filename"]
+            is_img  = _is_image(item["filename"]) or item.get("type") == "image"
+            dur     = item.get("duration_seconds", 10) if is_img else None
+            lines.append(_edl_entry(path, dur))
+
+            if stinger_ok:
+                # Images used as stinger need a duration
+                s_dur = stinger_duration if _is_image(stinger) else None
+                lines.append(_edl_entry(stinger_path, s_dur))
+
+        EDL_PATH.write_text("\n".join(lines), encoding="utf-8")
+        return EDL_PATH
+
+    # -------------------------------------------------------------------------
+    # Single-file playback
+    # -------------------------------------------------------------------------
+
+    def play(self, filename: str, loop: Optional[bool] = None,
+             duration_seconds: int = 10) -> None:
         self._stop_playlist()
         self._ensure_mpv()
 
@@ -160,29 +178,37 @@ class PlayerService:
         if not path.exists():
             raise FileNotFoundError(f"Arquivo não encontrado: {filename}")
 
-        is_img = _is_image(filename)
+        is_img   = _is_image(filename)
         loop_val = "inf" if self._loop else "no"
+        self._ipc("set_property", "loop-playlist", "no")
         self._ipc("set_property", "loop-file", loop_val)
-        if is_img:
-            self._ipc("set_property", "image-display-duration",
-                      duration_seconds if not self._loop else "inf")
-        self._ipc("loadfile", str(path), "replace")
+
+        if is_img and not self._loop:
+            # Use mini-EDL so mpv respects the duration
+            mini_edl = f"# mpv EDL v0\n{_edl_entry(path, duration_seconds)}"
+            EDL_PATH.write_text(mini_edl, encoding="utf-8")
+            self._ipc("set_property", "loop-file", "no")
+            self._ipc("loadlist", str(EDL_PATH), "replace")
+        else:
+            self._ipc("loadfile", str(path), "replace")
+
         self._current_file = filename
-        logger.info("Reproduzindo: %s (loop=%s, image=%s)", filename, self._loop, is_img)
+        logger.info("Reproduzindo: %s (loop=%s)", filename, self._loop)
 
     def stop(self, show_status: bool = True) -> None:
         self._stop_playlist()
-        self._kill()
         self._current_file = ""
         logger.info("Player parado.")
-        if show_status and self._display:
-            self._display.show_status_from_config()
+        if show_status:
+            self.play_standby()
+        else:
+            self._kill()
 
     def restart(self) -> None:
         if not self._current_file:
             raise RuntimeError("Nenhum arquivo em reprodução.")
         if self._playing_playlist:
-            self._play_playlist_item(self._playlist_index)
+            self._reload_playlist()
         else:
             self.play(self._current_file, loop=self._loop)
 
@@ -193,7 +219,7 @@ class PlayerService:
         logger.info("Loop: %s", "ligado" if enabled else "desligado")
 
     # -------------------------------------------------------------------------
-    # Playlist playback
+    # Playlist playback (EDL-based)
     # -------------------------------------------------------------------------
 
     def play_playlist(
@@ -202,7 +228,8 @@ class PlayerService:
         items: List[dict],
         loop: bool = True,
         start_index: int = 0,
-        transition: str = "cut",
+        stinger: str = "",
+        stinger_duration: int = 1,
         name: str = "",
     ) -> None:
         if not items:
@@ -218,66 +245,31 @@ class PlayerService:
         self._playlist_loop  = loop
         self._playlist_index = start_index
         self._playing_playlist = True
-        self._transition     = transition
+        self._stinger        = stinger
+        self._stinger_valid  = bool(stinger and (MEDIA_DIR / stinger).exists())
 
-        self._play_playlist_item(start_index)
+        edl = self._generate_edl(items, stinger, stinger_duration)
+        self._ipc("set_property", "loop-playlist", "inf" if loop else "no")
+        self._ipc("loadlist", str(edl), "replace")
+
+        if start_index > 0:
+            step = 2 if self._stinger_valid else 1
+            self._ipc("set_property", "playlist-pos", start_index * step)
+
+        self._current_file = items[start_index]["filename"] if items else ""
         self._start_monitor()
         logger.info(
-            "Playlist iniciada: %s (%d itens, loop=%s, transition=%s)",
-            playlist_id, len(items), loop, transition,
+            "Playlist iniciada: %s (%d itens, loop=%s, stinger=%s)",
+            playlist_id, len(items), loop, stinger or "none",
         )
 
-    def _play_playlist_item(self, index: int) -> None:
-        if index < 0 or index >= len(self._playlist_items):
-            return
-        item     = self._playlist_items[index]
-        filename = item["filename"]
-        mtype    = item.get("type", "video")
-        is_img   = _is_image(filename) or mtype == "image"
-        duration = item.get("duration_seconds", 10) if is_img else None
-
-        path = MEDIA_DIR / filename
-        if not path.exists():
-            logger.warning("Arquivo não encontrado, pulando: %s", filename)
-            self._playlist_index = index
-            self._advance_playlist()
-            return
-
-        self._transitioning = True
-        try:
-            # Fade: brief black frame before loading next item
-            if self._transition == "fade" and BLACK_PNG.exists():
-                self._ipc("set_property", "image-display-duration", FADE_SECS)
-                self._ipc("loadfile", str(BLACK_PNG), "replace")
-                time.sleep(FADE_SECS + 0.05)
-
-            self._ipc("set_property", "loop-file", "no")
-            if is_img:
-                self._ipc("set_property", "image-display-duration", duration)
-            self._ipc("loadfile", str(path), "replace")
-            self._current_file   = filename
-            self._playlist_index = index
-        finally:
-            self._transitioning = False
-
-        logger.info(
-            "Playlist item %d/%d: %s",
-            index + 1, len(self._playlist_items), filename,
-        )
-
-    def _advance_playlist(self) -> None:
-        next_idx = self._playlist_index + 1
-        if next_idx >= len(self._playlist_items):
-            if self._playlist_loop:
-                next_idx = 0
-            else:
-                logger.info("Playlist finalizada: %s", self._playlist_id)
-                self._stop_playlist()
-                self._kill()
-                if self._display:
-                    self._display.show_status_from_config()
-                return
-        self._play_playlist_item(next_idx)
+    def _reload_playlist(self) -> None:
+        """Regenerate and reload EDL keeping current index."""
+        edl = self._generate_edl(self._playlist_items, self._stinger)
+        self._ipc("set_property", "loop-playlist", "inf" if self._playlist_loop else "no")
+        self._ipc("loadlist", str(edl), "replace")
+        step = 2 if self._stinger_valid else 1
+        self._ipc("set_property", "playlist-pos", self._playlist_index * step)
 
     def _stop_playlist(self) -> None:
         self._monitoring = False
@@ -286,21 +278,69 @@ class PlayerService:
         self._playlist_index   = 0
         self._playlist_id      = ""
         self._playlist_name    = ""
+        self._stinger          = ""
+        self._stinger_valid    = False
 
     def next_item(self) -> None:
         if not self._playing_playlist:
             raise RuntimeError("Nenhuma playlist em reprodução.")
-        next_idx = (self._playlist_index + 1) % len(self._playlist_items)
-        self._play_playlist_item(next_idx)
+        step  = 2 if self._stinger_valid else 1
+        total = len(self._playlist_items)
+        next_idx = (self._playlist_index + 1) % total
+        self._ipc("set_property", "playlist-pos", next_idx * step)
 
     def previous_item(self) -> None:
         if not self._playing_playlist:
             raise RuntimeError("Nenhuma playlist em reprodução.")
-        prev = max(0, self._playlist_index - 1)
-        self._play_playlist_item(prev)
+        step     = 2 if self._stinger_valid else 1
+        prev_idx = max(0, self._playlist_index - 1)
+        self._ipc("set_property", "playlist-pos", prev_idx * step)
 
     # -------------------------------------------------------------------------
-    # Monitor thread — polls core-idle via IPC
+    # Standby — plays BG media or status screen; never shows Linux console
+    # -------------------------------------------------------------------------
+
+    def play_standby(self) -> None:
+        """Load standby content into persistent mpv. Never kills the process."""
+        self._playing_playlist = False
+        self._current_file     = ""
+
+        # 1. Try user's custom BG media
+        try:
+            from app.services.config_service import config_service
+            bg = config_service.config.bg_media
+            if bg:
+                bg_path = MEDIA_DIR / bg
+                if bg_path.exists():
+                    self._ensure_mpv()
+                    self._ipc("set_property", "loop-playlist", "no")
+                    self._ipc("set_property", "loop-file", "inf")
+                    self._ipc("loadfile", str(bg_path), "replace")
+                    logger.info("Standby: BG media → %s", bg)
+                    return
+        except Exception as e:
+            logger.debug("BG media error: %s", e)
+
+        # 2. Render status screen and load it into mpv
+        if self._display:
+            try:
+                status_path = self._display.render_status_image()
+                if status_path and status_path.exists():
+                    self._ensure_mpv()
+                    self._ipc("set_property", "loop-playlist", "no")
+                    self._ipc("set_property", "loop-file", "inf")
+                    self._ipc("loadfile", str(status_path), "replace")
+                    logger.info("Standby: status screen")
+                    return
+            except Exception as e:
+                logger.debug("Status image error: %s", e)
+
+        # 3. Last resort: kill mpv (screen goes blank — shouldn't reach here)
+        logger.warning("play_standby: sem conteúdo disponível, desligando mpv.")
+        self._kill()
+
+    # -------------------------------------------------------------------------
+    # Monitor thread — tracks playlist-pos and end-of-playlist
     # -------------------------------------------------------------------------
 
     def _start_monitor(self) -> None:
@@ -313,28 +353,38 @@ class PlayerService:
         self._monitor_thread.start()
 
     def _monitor_loop(self) -> None:
-        waiting_for_play = True
-        while self._monitoring:
-            time.sleep(0.4)
-            if not self._playing_playlist:
-                break
-            if self._transitioning:
-                continue
+        step     = 2 if self._stinger_valid else 1
+        was_idle = True  # initial state: mpv is idle before playlist loads
+
+        while self._monitoring and self._playing_playlist:
+            time.sleep(0.5)
             if self._process and self._process.poll() is not None:
+                logger.warning("mpv daemon terminou inesperadamente na monitor loop.")
                 break
 
-            idle = self._ipc_get("core-idle")
-            if idle is None:
-                continue
+            # Track current position → update _playlist_index and _current_file
+            pos = self._ipc_get("playlist-pos")
+            if pos is not None and pos % step == 0:
+                idx = pos // step
+                if 0 <= idx < len(self._playlist_items):
+                    if idx != self._playlist_index:
+                        self._playlist_index = idx
+                        self._current_file   = self._playlist_items[idx]["filename"]
 
-            if waiting_for_play:
-                if idle is False:
-                    waiting_for_play = False
-            else:
-                if idle:
-                    waiting_for_play = True
-                    if self._playing_playlist and self._monitoring:
-                        self._advance_playlist()
+            # Detect end-of-playlist for non-looping playlists
+            if not self._playlist_loop:
+                idle = self._ipc_get("core-idle")
+                if idle is None:
+                    continue
+                if was_idle and not idle:
+                    was_idle = False   # playback started
+                elif not was_idle and idle:
+                    # Playlist ended
+                    logger.info("Playlist não-loop finalizada: %s", self._playlist_id)
+                    self._playing_playlist = False
+                    self._current_file     = ""
+                    self.play_standby()
+                    break
 
     # -------------------------------------------------------------------------
     # State
@@ -343,8 +393,6 @@ class PlayerService:
     def is_playing(self) -> bool:
         if self._process is None or self._process.poll() is not None:
             return False
-        if self._transitioning:
-            return True
         idle = self._ipc_get("core-idle")
         if idle is None:
             return bool(self._current_file)
@@ -353,15 +401,15 @@ class PlayerService:
     def status(self) -> dict:
         playing = self.is_playing()
         return {
-            "playing": playing,
-            "current_file":    self._current_file if playing else "",
-            "loop":            self._loop,
+            "playing":          playing,
+            "current_file":     self._current_file if playing else "",
+            "loop":             self._loop,
             "playing_playlist": self._playing_playlist and playing,
-            "playlist_id":     self._playlist_id   if self._playing_playlist else "",
-            "playlist_name":   self._playlist_name if self._playing_playlist else "",
-            "playlist_index":  self._playlist_index if self._playing_playlist else 0,
-            "playlist_total":  len(self._playlist_items) if self._playing_playlist else 0,
-            "transition":      self._transition,
+            "playlist_id":      self._playlist_id   if self._playing_playlist else "",
+            "playlist_name":    self._playlist_name if self._playing_playlist else "",
+            "playlist_index":   self._playlist_index if self._playing_playlist else 0,
+            "playlist_total":   len(self._playlist_items) if self._playing_playlist else 0,
+            "stinger":          self._stinger,
         }
 
 
