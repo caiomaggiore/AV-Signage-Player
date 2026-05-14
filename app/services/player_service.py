@@ -212,6 +212,11 @@ class PlayerService:
         self._current_file = filename
         logger.info("Reproduzindo: %s (loop=%s)", filename, self._loop)
 
+        # For non-looping single files, start a monitor to call play_standby when done
+        if not self._loop:
+            self._playing_playlist = False
+            self._start_monitor(single_file=True)
+
     def stop(self, show_status: bool = True) -> None:
         self._stop_playlist()
         self._current_file = ""
@@ -219,7 +224,9 @@ class PlayerService:
         if show_status:
             self.play_standby()
         else:
-            self._kill()
+            # On shutdown: terminate mpv cleanly (graceful SIGTERM, not SIGKILL)
+            if self.mpv_alive():
+                self._kill()
 
     def restart(self) -> None:
         if not self._current_file:
@@ -319,7 +326,7 @@ class PlayerService:
     # -------------------------------------------------------------------------
 
     def play_standby(self) -> None:
-        """Load standby content into persistent mpv. Never kills the process."""
+        """Load standby content into persistent mpv. NEVER kills mpv."""
         self._playing_playlist = False
         self._current_file     = ""
 
@@ -331,8 +338,8 @@ class PlayerService:
                 bg_path = MEDIA_DIR / bg
                 if bg_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
-                    self._ipc("set_property", "loop-file", "inf")
-                    self._ipc("loadfile", str(bg_path), "replace")
+                    # Pass loop-file as per-file option in loadfile (more reliable)
+                    self._ipc("loadfile", str(bg_path), "replace", 0, "loop-file=inf")
                     logger.info("Standby: BG media → %s", bg)
                     return
         except Exception as e:
@@ -344,63 +351,94 @@ class PlayerService:
                 status_path = self._display.render_status_image()
                 if status_path and status_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
-                    self._ipc("set_property", "loop-file", "inf")
-                    self._ipc("loadfile", str(status_path), "replace")
+                    self._ipc("loadfile", str(status_path), "replace", 0,
+                               "loop-file=inf,image-display-duration=inf")
                     logger.info("Standby: status screen")
                     return
             except Exception as e:
                 logger.debug("Status image error: %s", e)
 
-        # 3. Last resort: kill mpv (screen goes blank — shouldn't reach here)
-        logger.warning("play_standby: sem conteúdo disponível, desligando mpv.")
-        self._kill()
+        # 3. Keep mpv alive in idle — black screen is better than the Linux console.
+        # NEVER kill mpv here: forceful DRM release can lock up the Pi GPU driver.
+        if self.mpv_alive():
+            logger.warning("play_standby: sem conteúdo; mantendo mpv em idle (tela preta).")
+        else:
+            # mpv is dead; restart it in idle so it holds the display
+            if self._ensure_mpv():
+                logger.warning("play_standby: mpv reiniciado em idle (sem conteúdo).")
+            else:
+                logger.error("play_standby: mpv não pôde ser iniciado.")
 
     # -------------------------------------------------------------------------
     # Monitor thread — tracks playlist-pos and end-of-playlist
     # -------------------------------------------------------------------------
 
-    def _start_monitor(self) -> None:
+    def _start_monitor(self, single_file: bool = False) -> None:
         self._monitoring = True
         if self._monitor_thread and self._monitor_thread.is_alive():
             return
         self._monitor_thread = threading.Thread(
-            target=self._monitor_loop, daemon=True
+            target=self._monitor_loop,
+            args=(single_file,),
+            daemon=True,
         )
         self._monitor_thread.start()
 
-    def _monitor_loop(self) -> None:
+    def _monitor_loop(self, single_file: bool = False) -> None:
         step     = 2 if self._stinger_valid else 1
-        was_idle = True  # initial state: mpv is idle before playlist loads
+        was_idle = True  # mpv starts idle; goes non-idle when content loads
 
-        while self._monitoring and self._playing_playlist:
+        while self._monitoring:
             time.sleep(0.5)
+
+            # mpv crashed — restart in idle to avoid console
             if self._process and self._process.poll() is not None:
-                logger.warning("mpv daemon terminou inesperadamente na monitor loop.")
+                logger.warning("mpv daemon terminou inesperadamente; reiniciando em idle.")
+                self._process = None
+                self._playing_playlist = False
+                self._current_file     = ""
+                self.play_standby()
                 break
 
-            # Track current position → update _playlist_index and _current_file
-            pos = self._ipc_get("playlist-pos")
-            if pos is not None and pos % step == 0:
-                idx = pos // step
-                if 0 <= idx < len(self._playlist_items):
-                    if idx != self._playlist_index:
-                        self._playlist_index = idx
-                        self._current_file   = self._playlist_items[idx]["filename"]
+            # Playlist mode: track position
+            if self._playing_playlist:
+                pos = self._ipc_get("playlist-pos")
+                if pos is not None and pos % step == 0:
+                    idx = pos // step
+                    if 0 <= idx < len(self._playlist_items):
+                        if idx != self._playlist_index:
+                            self._playlist_index = idx
+                            self._current_file   = self._playlist_items[idx]["filename"]
 
-            # Detect end-of-playlist for non-looping playlists
-            if not self._playlist_loop:
+                # End detection for non-looping playlists
+                if not self._playlist_loop:
+                    idle = self._ipc_get("core-idle")
+                    if idle is None:
+                        continue
+                    if was_idle and not idle:
+                        was_idle = False
+                    elif not was_idle and idle:
+                        logger.info("Playlist não-loop finalizada: %s", self._playlist_id)
+                        self._playing_playlist = False
+                        self._current_file     = ""
+                        self.play_standby()
+                        break
+
+            # Single-file mode: detect when non-looping file ends
+            elif single_file:
                 idle = self._ipc_get("core-idle")
                 if idle is None:
                     continue
                 if was_idle and not idle:
-                    was_idle = False   # playback started
+                    was_idle = False
                 elif not was_idle and idle:
-                    # Playlist ended
-                    logger.info("Playlist não-loop finalizada: %s", self._playlist_id)
-                    self._playing_playlist = False
-                    self._current_file     = ""
+                    logger.info("Arquivo único finalizado; indo para standby.")
+                    self._current_file = ""
                     self.play_standby()
                     break
+
+            else:
+                break  # nothing to monitor
 
     # -------------------------------------------------------------------------
     # State
