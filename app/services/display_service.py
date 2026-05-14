@@ -8,7 +8,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-STATUS_IMAGE = Path("/opt/av-signage/media/cache/status_screen.png")
+STATUS_IMAGE  = Path("/opt/av-signage/media/cache/status_screen.png")
+DEFAULT_BG    = Path("/opt/av-signage/media/cache/default_bg.png")
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
@@ -196,6 +197,77 @@ def _generate_image(
         return False
 
 
+def _generate_default_bg_image(rotation: int = 0, ip: str = "") -> bool:
+    """Gera a imagem de standby com a marca Maggiore.AV. Retorna True se sucesso."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        portrait = rotation in (90, 270)
+        W, H = (1080, 1920) if portrait else (1920, 1080)
+
+        BG     = (8,   10,  18)
+        TEXT   = (220, 225, 235)
+        GOLD   = (210, 165, 55)
+        MUTED  = (75,  85, 105)
+        SEP    = (30,  38,  65)
+        ADDR   = (45,  55,  80)
+
+        img  = Image.new("RGB", (W, H), BG)
+        draw = ImageDraw.Draw(img)
+        cx   = W // 2
+        cy   = H // 2
+
+        # Círculos concêntricos decorativos (fundo sutil)
+        for r, alpha in [(min(W, H) // 2, SEP), (min(W, H) // 3, SEP), (min(W, H) // 5, (20, 28, 52))]:
+            draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=alpha, width=1)
+
+        def lf(path: str, size: int) -> ImageFont.FreeTypeFont:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                return ImageFont.load_default()
+
+        if portrait:
+            f_brand = lf(FONT_BOLD, 110)
+            f_av    = lf(FONT_BOLD,  72)
+            f_tag   = lf(FONT_PATH,  32)
+            f_addr  = lf(FONT_PATH,  24)
+            logo_y  = cy - 120
+        else:
+            f_brand = lf(FONT_BOLD, 128)
+            f_av    = lf(FONT_BOLD,  80)
+            f_tag   = lf(FONT_PATH,  34)
+            f_addr  = lf(FONT_PATH,  24)
+            logo_y  = cy - 110
+
+        # "MAGGIORE" em branco
+        draw.text((cx, logo_y),        "MAGGIORE",        font=f_brand, fill=TEXT, anchor="mm")
+        # ".AV" em dourado
+        draw.text((cx, logo_y + 145),  ".AV",             font=f_av,   fill=GOLD, anchor="mm")
+        # Linha separadora
+        sep_y = logo_y + 205
+        draw.line([(cx - 180, sep_y), (cx + 180, sep_y)], fill=SEP, width=1)
+        # Tagline
+        draw.text((cx, sep_y + 46),    "Digital Signage", font=f_tag,  fill=MUTED, anchor="mm")
+
+        # IP no rodapé (sutil, para acesso inicial)
+        if ip:
+            draw.text((cx, H - 52), f"Acesse  ·  http://{ip}:8080",
+                      font=f_addr, fill=ADDR, anchor="mm")
+
+        DEFAULT_BG.parent.mkdir(parents=True, exist_ok=True)
+        img.save(str(DEFAULT_BG))
+        logger.info("BG padrão Maggiore.AV gerado: %dx%d rotation=%d°", W, H, rotation)
+        return True
+
+    except ImportError:
+        logger.warning("Pillow não instalado — BG padrão indisponível.")
+        return False
+    except Exception as e:
+        logger.error("Erro ao gerar BG padrão: %s", e)
+        return False
+
+
 class DisplayService:
     def __init__(self) -> None:
         self._process: Optional[subprocess.Popen] = None
@@ -274,6 +346,18 @@ class DisplayService:
                 return STATUS_IMAGE
         except Exception as e:
             logger.error("Erro ao renderizar imagem de status: %s", e)
+        return None
+
+    def generate_default_bg(self) -> Optional[Path]:
+        """Gera (ou reutiliza) a imagem padrão Maggiore.AV e retorna o path."""
+        try:
+            from app.services.device_service import get_ip
+            rotation = _get_rotation()
+            ip = get_ip() or ""
+            if _generate_default_bg_image(rotation=rotation, ip=ip):
+                return DEFAULT_BG
+        except Exception as e:
+            logger.error("Erro ao gerar BG padrão: %s", e)
         return None
 
     def show_status_from_config(self) -> None:

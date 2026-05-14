@@ -338,22 +338,34 @@ class PlayerService:
                 bg_path = MEDIA_DIR / bg
                 if bg_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
-                    # Pass loop-file as per-file option in loadfile (more reliable)
-                    self._ipc("loadfile", str(bg_path), "replace", 0, "loop-file=inf")
+                    self._ipc("loadfile", str(bg_path), "replace", "loop-file=inf")
                     logger.info("Standby: BG media → %s", bg)
                     return
         except Exception as e:
             logger.debug("BG media error: %s", e)
 
-        # 2. Render status screen and load it into mpv
+        # 2. Default branded standby (Maggiore.AV)
+        if self._display:
+            try:
+                default_bg = self._display.generate_default_bg()
+                if default_bg and default_bg.exists() and self._ensure_mpv():
+                    self._ipc("set_property", "loop-playlist", "no")
+                    self._ipc("loadfile", str(default_bg), "replace",
+                               "loop-file=inf,image-display-duration=inf")
+                    logger.info("Standby: BG padrão Maggiore.AV")
+                    return
+            except Exception as e:
+                logger.debug("Default BG error: %s", e)
+
+        # 3. Status screen (fallback com QR e IP)
         if self._display:
             try:
                 status_path = self._display.render_status_image()
                 if status_path and status_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
-                    self._ipc("loadfile", str(status_path), "replace", 0,
+                    self._ipc("loadfile", str(status_path), "replace",
                                "loop-file=inf,image-display-duration=inf")
-                    logger.info("Standby: status screen")
+                    logger.info("Standby: tela de status")
                     return
             except Exception as e:
                 logger.debug("Status image error: %s", e)
