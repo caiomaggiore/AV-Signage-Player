@@ -73,10 +73,11 @@ class PlayerService:
     # Persistent mpv daemon
     # -------------------------------------------------------------------------
 
-    def _ensure_mpv(self) -> None:
-        """Start persistent mpv daemon if not running."""
+    def _ensure_mpv(self) -> bool:
+        """Start persistent mpv daemon if not running. Returns True if ready."""
         if self._process and self._process.poll() is None:
-            return
+            return True
+
         Path(SOCKET_PATH).unlink(missing_ok=True)
         rotation = _get_rotation()
         cmd = [
@@ -86,18 +87,33 @@ class PlayerService:
             "--no-border", "--no-osc", "--no-input-terminal",
             f"--video-rotate={rotation}",
             "--idle=yes",
-            "--image-display-duration=inf",   # safe default; EDL overrides per-item
+            "--image-display-duration=inf",
             f"--input-ipc-server={SOCKET_PATH}",
         ]
-        self._process = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        for _ in range(60):
+        try:
+            self._process = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except FileNotFoundError:
+            logger.error("mpv não encontrado no PATH.")
+            return False
+
+        # Wait up to 8s for socket (DRM device may take a moment on boot)
+        for _ in range(80):
             if Path(SOCKET_PATH).exists():
                 time.sleep(0.05)
-                break
+                logger.info("mpv daemon iniciado (pid=%d).", self._process.pid)
+                return True
             time.sleep(0.1)
-        logger.info("mpv daemon iniciado.")
+
+        # If mpv exited already, capture the failure
+        if self._process.poll() is not None:
+            logger.error("mpv daemon falhou ao iniciar (exit=%d).", self._process.returncode)
+            self._process = None
+            return False
+
+        logger.warning("mpv daemon iniciou mas socket demorou (continuando mesmo assim).")
+        return True
 
     def _ipc(self, *args) -> Optional[dict]:
         try:
@@ -169,7 +185,8 @@ class PlayerService:
     def play(self, filename: str, loop: Optional[bool] = None,
              duration_seconds: int = 10) -> None:
         self._stop_playlist()
-        self._ensure_mpv()
+        if not self._ensure_mpv():
+            raise RuntimeError("mpv daemon não pôde ser iniciado.")
 
         if loop is not None:
             self._loop = loop
@@ -237,7 +254,8 @@ class PlayerService:
             return
 
         self._stop_playlist()
-        self._ensure_mpv()
+        if not self._ensure_mpv():
+            raise RuntimeError("mpv daemon não pôde ser iniciado.")
 
         self._playlist_id    = playlist_id
         self._playlist_name  = name
@@ -311,8 +329,7 @@ class PlayerService:
             bg = config_service.config.bg_media
             if bg:
                 bg_path = MEDIA_DIR / bg
-                if bg_path.exists():
-                    self._ensure_mpv()
+                if bg_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
                     self._ipc("set_property", "loop-file", "inf")
                     self._ipc("loadfile", str(bg_path), "replace")
@@ -325,8 +342,7 @@ class PlayerService:
         if self._display:
             try:
                 status_path = self._display.render_status_image()
-                if status_path and status_path.exists():
-                    self._ensure_mpv()
+                if status_path and status_path.exists() and self._ensure_mpv():
                     self._ipc("set_property", "loop-playlist", "no")
                     self._ipc("set_property", "loop-file", "inf")
                     self._ipc("loadfile", str(status_path), "replace")
@@ -389,6 +405,15 @@ class PlayerService:
     # -------------------------------------------------------------------------
     # State
     # -------------------------------------------------------------------------
+
+    @property
+    def current_playlist_id(self) -> str:
+        """Retorna o ID da playlist configurada, sem depender de IPC."""
+        return self._playlist_id if self._playing_playlist else ""
+
+    def mpv_alive(self) -> bool:
+        """Verifica se o processo mpv está rodando (sem IPC)."""
+        return bool(self._process and self._process.poll() is None)
 
     def is_playing(self) -> bool:
         if self._process is None or self._process.poll() is not None:

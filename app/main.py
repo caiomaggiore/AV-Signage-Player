@@ -24,14 +24,19 @@ from app.services import schedule_service
 from app.services.player_service import player_service
 from app.services.display_service import display_service
 
+_LOG_FILE = Path("/opt/av-signage/logs/app.log")
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("/opt/av-signage/logs/app.log"),
+        logging.StreamHandler(),          # stdout → systemd journal
+        logging.FileHandler(str(_LOG_FILE)),  # arquivo direto
     ],
 )
+# Evitar propagação duplicada de loggers de bibliotecas externas
+for _noisy in ("uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_noisy).propagate = False
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path("/opt/av-signage/web/templates")
@@ -90,8 +95,12 @@ def _check_schedule() -> None:
     # Sem agenda ativa — checar playlist padrão
     fallback_id = schedule_service.get_fallback_playlist_id()
     if fallback_id:
-        ps = player_service.status()
-        if not ps.get("playing"):
+        # Não reinicia se a mesma playlist já está configurada e o mpv está vivo
+        already_playing = (
+            player_service.current_playlist_id == fallback_id
+            and player_service.mpv_alive()
+        )
+        if not already_playing:
             pl = playlist_service.get_playlist(fallback_id)
             if pl and pl.get("items"):
                 player_service.play_playlist(
@@ -120,8 +129,8 @@ async def lifespan(app: FastAPI):
     config_service.load()
     player_service.set_screen_service(display_service)
 
-    # Verificar agendamento imediatamente ao iniciar
-    await asyncio.sleep(0)
+    # Pequena pausa para o DRM/display estabilizar no boot antes de iniciar o mpv
+    await asyncio.sleep(3)
     _check_schedule()
     # play_standby já é chamado por _check_schedule quando não há conteúdo agendado
 
