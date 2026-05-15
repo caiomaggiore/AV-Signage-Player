@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 MEDIA_DIR        = Path("/opt/av-signage/media/local")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ROTATION_DEGREES = {"normal": 0, "right": 90, "left": 270}
-EDL_PATH         = Path("/tmp/av_signage_playlist.edl")
+PLAYLIST_FILE    = Path("/tmp/av_signage_playlist.m3u")
 
 
 def _get_rotation() -> int:
@@ -29,15 +29,6 @@ def _get_rotation() -> int:
 
 def _is_image(filename: str) -> bool:
     return Path(filename).suffix.lower() in IMAGE_EXTENSIONS
-
-
-def _edl_entry(path: Path, duration: Optional[float] = None) -> str:
-    """EDL v0 line with %N% path encoding."""
-    p = str(path)
-    entry = f"%{len(p.encode('utf-8'))}%{p}"
-    if duration is not None:
-        entry += f",,{duration}"
-    return entry
 
 
 class PlayerService:
@@ -92,34 +83,32 @@ class PlayerService:
         self._kill()
         if self._display:
             self._display.hide()
+        time.sleep(0.4)  # Allow DRM device to be fully released before new mpv starts
         self._process = subprocess.Popen(
             self._base_cmd() + extra_args,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=open("/tmp/mpv_last.log", "w"),  # log for debugging
         )
 
     # -------------------------------------------------------------------------
-    # EDL generation (seamless within-playlist transitions)
+    # M3U playlist generation (simple, reliable with mpv)
     # -------------------------------------------------------------------------
 
-    def _generate_edl(self, items: List[dict], stinger: str = "",
-                      stinger_duration: int = 1) -> Path:
+    def _generate_playlist(self, items: List[dict], stinger: str = "") -> Path:
+        """Generate a plain M3U file. Stinger file is inserted between items if set."""
         stinger_path = MEDIA_DIR / stinger if stinger else None
         stinger_ok   = bool(stinger_path and stinger_path.exists())
         self._stinger_valid = stinger_ok
 
-        lines = ["# mpv EDL v0"]
+        lines = []
         for item in items:
-            path   = MEDIA_DIR / item["filename"]
-            is_img = _is_image(item["filename"]) or item.get("type") == "image"
-            dur    = item.get("duration_seconds", 10) if is_img else None
-            lines.append(_edl_entry(path, dur))
+            lines.append(str(MEDIA_DIR / item["filename"]))
             if stinger_ok:
-                s_dur = stinger_duration if _is_image(stinger) else None
-                lines.append(_edl_entry(stinger_path, s_dur))
+                lines.append(str(stinger_path))
 
-        EDL_PATH.write_text("\n".join(lines), encoding="utf-8")
-        return EDL_PATH
+        PLAYLIST_FILE.write_text("\n".join(lines), encoding="utf-8")
+        logger.debug("Playlist M3U gerada: %d linhas", len(lines))
+        return PLAYLIST_FILE
 
     # -------------------------------------------------------------------------
     # Playback
@@ -171,13 +160,16 @@ class PlayerService:
         self._playing_playlist = True
         self._stinger          = stinger
 
-        edl  = self._generate_edl(items, stinger, stinger_duration)
+        pf   = self._generate_playlist(items, stinger)
         step = 2 if self._stinger_valid else 1
         args = [
             f"--loop-playlist={'inf' if loop else 'no'}",
             f"--playlist-start={start_index * step}",
-            str(edl),  # EDL é passado como arquivo direto, não via --playlist=
+            f"--playlist={str(pf)}",
         ]
+        # Stinger de imagem precisa de duração definida; sobrescreve o inf do base_cmd
+        if self._stinger_valid and _is_image(stinger):
+            args.append(f"--image-display-duration={stinger_duration}")
         self._launch(args)
         self._current_file = items[start_index]["filename"] if items else ""
         self._start_monitor()

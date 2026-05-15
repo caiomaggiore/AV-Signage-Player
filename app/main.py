@@ -69,6 +69,9 @@ def _check_schedule() -> None:
     """Lógica de verificação de agendamento. Chamada pelo runner e na inicialização."""
     state = config_service.state
     if state.manual_override:
+        # Em modo manual: não inicia conteúdo automático, mas garante standby na tela
+        if not player_service.is_playing():
+            player_service.play_standby()
         return
 
     active = schedule_service.get_active_schedule()
