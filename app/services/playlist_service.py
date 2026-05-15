@@ -99,8 +99,10 @@ def _validate_playlist(data: dict) -> dict:
         })
 
     return {
-        "id": data.get("id", ""),
-        "name": data.get("name", ""),
-        "loop": bool(data.get("loop", True)),
-        "items": items,
+        "id":               data.get("id", ""),
+        "name":             data.get("name", ""),
+        "loop":             bool(data.get("loop", True)),
+        "stinger":          str(data.get("stinger", "")),
+        "stinger_duration": int(data.get("stinger_duration", 1)),
+        "items":            items,
     }

@@ -52,10 +52,12 @@ _schedule_task: Optional[asyncio.Task] = None
 async def _schedule_runner() -> None:
     """Background task: verifica e executa agendamentos locais."""
     logger.info("ScheduleRunner iniciado.")
+    loop = asyncio.get_event_loop()
     while True:
         try:
             await asyncio.sleep(60)
-            _check_schedule()
+            # Roda em executor para não bloquear o event loop do FastAPI
+            await loop.run_in_executor(None, _check_schedule)
         except asyncio.CancelledError:
             logger.info("ScheduleRunner encerrado.")
             break
@@ -664,7 +666,7 @@ async def api_stop(request: Request):
     if err:
         return err
     player_service.stop()
-    config_service.save_state(manual_override=False)
+    config_service.save_state(manual_override=True)
     return JSONResponse({"ok": True, **player_service.status()})
 
 
