@@ -5,96 +5,212 @@
 {% block content %}
 <div class="page-header">
   <h2>{{ display_name }}</h2>
-  <span id="player-badge" class="badge badge-{{ 'success' if player_status == 'playing' else 'neutral' }}">
-    {{ 'Reproduzindo' if player_status == 'playing' else 'Parado' }}
-  </span>
-</div>
-
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="stat-label">Hostname</div>
-    <div class="stat-value"><a href="http://{{ hostname }}.local">{{ hostname }}.local</a></div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Endereço IP</div>
-    <div id="stat-ip" class="stat-value">{{ ip }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">MAC</div>
-    <div class="stat-value mono">{{ mac }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Rede</div>
-    <div class="stat-value">{{ network_mode | upper }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Temperatura</div>
-    <div id="stat-temp" class="stat-value">{{ cpu_temp }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Disco livre</div>
-    <div id="stat-disk" class="stat-value">{{ disk.free_gb }} GB <span class="text-muted">({{ disk.percent_used }}% usado)</span></div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Uptime</div>
-    <div id="stat-uptime" class="stat-value">{{ uptime }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Versão</div>
-    <div class="stat-value">{{ software_version }}</div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span id="player-badge" class="badge badge-neutral">
+      {{ 'Reproduzindo' if player_status == 'playing' else 'Parado' }}
+    </span>
+    <span id="last-updated" class="text-muted" style="font-size:12px"></span>
   </div>
 </div>
 
+<!-- ── Linha 1: Relógio + Servidor (50/50) ─────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Relógio -->
+  <div class="section" style="margin-bottom:0;padding:14px 18px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:10px">Data e Hora</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div>
+        <div id="clock-time" style="font-size:2rem;font-weight:700;letter-spacing:2px;font-variant-numeric:tabular-nums;line-height:1">--:--:--</div>
+        <div id="clock-date" style="color:var(--text-muted);margin-top:4px">--/--/----</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <a href="/settings#datetime" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500">Ajustar →</a>
+        <div class="text-muted" style="font-size:11px;margin-top:6px;text-transform:uppercase;letter-spacing:.4px">Fuso horário</div>
+        <div id="clock-tz" style="font-weight:600;margin-top:2px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Servidor / Pareamento -->
+  <div class="section" style="margin-bottom:0;padding:14px 18px">
+    <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Servidor</div>
+    {% if paired %}
+      <span class="badge badge-success">Pareado com servidor</span>
+    {% else %}
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <p class="text-muted" style="font-size:12px;flex:1;min-width:80px">Não pareado com servidor central.</p>
+        <div class="pairing-block" style="flex:1;min-width:120px">
+          <div class="pairing-label">Código de Pareamento</div>
+          <div class="pairing-code">{{ pairing_code }}</div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Player ──────────────────────────────────────────────────────────────── -->
 <div class="section">
-  <h3>Player</h3>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px;flex-wrap:wrap">
+    <h3 style="margin:0">Player</h3>
+    <!-- Indicador "Ao vivo" + botão STOP — visível apenas quando reproduzindo -->
+    <div id="player-live-bar" style="display:none;align-items:center;gap:10px">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#22c55e">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse-green 1.4s infinite"></span>
+        AO VIVO
+      </span>
+      <button class="btn btn-sm" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:4px 14px" onclick="stopPlayer()">Parar</button>
+    </div>
+  </div>
+
   <div class="player-status">
     <p id="last-playlist" style="margin-bottom:6px">
-      {% if player_status == 'playing' %}
-        <span class="text-muted" style="font-size:13px">Playlist:</span>
-        <strong id="playlist-name-text">—</strong>
-        <span id="playlist-pos-text" class="text-muted" style="font-size:12px"></span>
-      {% else %}
-        <span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>
-      {% endif %}
+      <span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>
     </p>
-    <p id="last-media">
-      {% if last_media %}
-        <span class="text-muted" style="font-size:13px">Arquivo:</span> <strong>{{ last_media }}</strong>
-      {% else %}
-        <span class="text-muted">Nenhuma mídia em reprodução.</span>
-      {% endif %}
-    </p>
+    <p id="last-media"></p>
+
+    <!-- Banner de override manual -->
+    <div id="manual-override-banner" style="display:none;margin-top:12px;padding:10px 14px;background:#1e2130;border:1px solid #374151;border-radius:8px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <span style="font-size:12px;font-weight:600;color:#f59e0b">⚠ Modo Manual</span>
+        <span class="text-muted" style="font-size:12px;margin-left:8px">Agenda automática suspensa até você retomar.</span>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="resumeSchedule()">Retomar Agenda</button>
+    </div>
+
     <div class="btn-group" style="margin-top:14px">
       <a href="/media" class="btn btn-secondary btn-sm">Mídias</a>
       <a href="/playlists" class="btn btn-primary btn-sm">Playlists</a>
+      <a href="/schedule" class="btn btn-secondary btn-sm">Agenda</a>
     </div>
   </div>
 </div>
 
+<style>
+@keyframes pulse-green {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.5; transform:scale(1.4); }
+}
+</style>
+
+<!-- ── Agendamentos ─────────────────────────────────────────────────────────── -->
 <div class="section">
-  <h3>Servidor</h3>
-  {% if paired %}
-    <p class="badge badge-success">Pareado com servidor</p>
-  {% else %}
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <p class="text-muted" style="font-size:13px">Dispositivo não pareado com servidor central.</p>
-      <div class="pairing-block">
-        <div class="pairing-label">Código de Pareamento</div>
-        <div class="pairing-code">{{ pairing_code }}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <h3 style="margin:0">Agendamentos</h3>
+    <a href="/schedule" class="btn btn-secondary btn-sm">Gerenciar</a>
+  </div>
+
+  {% set day_labels = {'mon':'Seg','tue':'Ter','wed':'Qua','thu':'Qui','fri':'Sex','sat':'Sáb','sun':'Dom'} %}
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for sc in schedules if sc.enabled %}
+      {% set is_active = (sc.id == active_schedule_id) %}
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:{% if is_active %}rgba(79,124,255,.08){% else %}var(--surface2,#1a1d2e){% endif %};border:1px solid {% if is_active %}rgba(79,124,255,.3){% else %}var(--border){% endif %};border-radius:8px;gap:12px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <strong style="font-size:14px">{{ sc.name }}</strong>
+            {% if is_active %}
+              <span id="sc-active-badge-{{ sc.id }}" class="badge badge-success" style="font-size:11px">Em execução</span>
+            {% else %}
+              <span id="sc-active-badge-{{ sc.id }}" class="badge badge-neutral" style="font-size:11px">Aguardando</span>
+            {% endif %}
+          </div>
+          <div class="text-muted" style="font-size:12px">
+            {% for d in sc.days %}{{ day_labels.get(d, d) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            &nbsp;·&nbsp; {{ sc.start_time }} – {{ sc.end_time }}
+            &nbsp;·&nbsp; {{ playlist_names.get(sc.playlist_id, sc.playlist_id) }}
+          </div>
+        </div>
       </div>
-    </div>
-  {% endif %}
+    {% else %}
+      <p class="text-muted" style="font-size:13px">Nenhum agendamento configurado. <a href="/schedule">Criar agendamento →</a></p>
+    {% endfor %}
+  </div>
 </div>
 
+<!-- ── Sistema & Hardware ───────────────────────────────────────────────────── -->
 <div class="section">
-  <h3>Hardware</h3>
-  <p class="text-muted">{{ hardware_model }} &nbsp;·&nbsp; ID: <span class="mono">{{ device_id }}</span></p>
+  <h3>Sistema & Hardware</h3>
+  <div class="stats-grid" style="margin-top:12px">
+    <div class="stat-card">
+      <div class="stat-label">Hostname</div>
+      <div class="stat-value"><a href="http://{{ hostname }}.local">{{ hostname }}.local</a></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Endereço IP</div>
+      <div id="stat-ip" class="stat-value">{{ ip }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Rede</div>
+      <div class="stat-value">{{ network_mode | upper }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Temperatura</div>
+      <div id="stat-temp" class="stat-value">{{ cpu_temp }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Disco livre</div>
+      <div id="stat-disk" class="stat-value">{{ disk.free_gb }} GB <span class="text-muted">({{ disk.percent_used }}% usado)</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Uptime</div>
+      <div id="stat-uptime" class="stat-value">{{ uptime }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Versão</div>
+      <div class="stat-value">{{ software_version }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">MAC</div>
+      <div class="stat-value mono" style="font-size:13px">{{ mac }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Hardware</div>
+      <div class="stat-value" style="font-size:13px">{{ hardware_model }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Device ID</div>
+      <div class="stat-value mono" style="font-size:12px">{{ device_id }}</div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 (function () {
+  // ── Relógio ao vivo sincronizado com o Pi ────────────────────────────────
+  let _clockOffset = 0;
+
+  function _padZ(n) { return String(n).padStart(2, '0'); }
+
+  function _tickClock() {
+    const now = new Date(Date.now() + _clockOffset);
+    const timeEl = document.getElementById('clock-time');
+    const dateEl = document.getElementById('clock-date');
+    if (timeEl) timeEl.textContent =
+      _padZ(now.getHours()) + ':' + _padZ(now.getMinutes()) + ':' + _padZ(now.getSeconds());
+    if (dateEl) dateEl.textContent =
+      _padZ(now.getDate()) + '/' + _padZ(now.getMonth() + 1) + '/' + now.getFullYear();
+  }
+
+  async function _syncPiTime() {
+    try {
+      const r = await fetch('/api/system/time', { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      const piMs = new Date(d.datetime).getTime();
+      _clockOffset = piMs - Date.now();
+      const tzEl = document.getElementById('clock-tz');
+      if (tzEl) tzEl.textContent = d.timezone || '—';
+    } catch (e) { /* silencioso */ }
+  }
+
+  _syncPiTime();
+  setInterval(_syncPiTime, 60000);
+  setInterval(_tickClock, 1000);
+  _tickClock();
+
+  // ── Status do player e métricas ─────────────────────────────────────────
   async function refreshStatus() {
     let data;
     try {
@@ -103,36 +219,60 @@
       data = await r.json();
     } catch (e) { return; }
 
+    // Timestamp "Atualizado"
+    const updEl = document.getElementById('last-updated');
+    if (updEl) {
+      const now = new Date(Date.now() + _clockOffset);
+      updEl.textContent = 'Atualizado: ' +
+        _padZ(now.getHours()) + ':' + _padZ(now.getMinutes()) + ':' + _padZ(now.getSeconds());
+    }
+
     const p = data.player || {};
     const playing = !!p.playing;
 
     const badge = document.getElementById('player-badge');
+    const liveBar = document.getElementById('player-live-bar');
+    const isLive = playing && !p.standby;
     if (badge) {
-      badge.className = 'badge badge-' + (playing ? 'success' : 'neutral');
-      badge.textContent = playing ? 'Reproduzindo' : 'Parado';
-    }
-
-    // Playlist info
-    const plRow = document.getElementById('last-playlist');
-    if (plRow) {
-      if (playing && p.playing_playlist) {
-        const pos = p.playlist_total > 0
-          ? ' · ' + (p.playlist_index + 1) + '/' + p.playlist_total
-          : '';
-        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Playlist:</span> <strong>' + (p.playlist_name || p.playlist_id || '—') + '</strong>'
-          + '<span class="text-muted" style="font-size:12px"> ' + pos + '</span>';
-      } else if (playing) {
-        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Reprodução avulsa.</span>';
+      if (!playing) {
+        badge.className = 'badge badge-neutral';
+        badge.textContent = 'Parado';
+      } else if (p.standby) {
+        badge.className = 'badge badge-neutral';
+        badge.textContent = 'Standby';
       } else {
-        plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>';
+        badge.className = 'badge badge-success';
+        badge.textContent = 'Reproduzindo';
       }
     }
+    if (liveBar) liveBar.style.display = isLive ? 'flex' : 'none';
 
+    // Playlist / file info — oculto no modo standby
+    const plRow = document.getElementById('last-playlist');
     const mediaEl = document.getElementById('last-media');
-    if (mediaEl) {
-      mediaEl.innerHTML = p.current_file
-        ? '<span class="text-muted" style="font-size:13px">Arquivo:</span> <strong>' + p.current_file + '</strong>'
-        : '<span class="text-muted">Nenhuma mídia em reprodução.</span>';
+    if (p.standby) {
+      if (plRow)   plRow.innerHTML   = '<span class="text-muted" style="font-size:13px">Sistema em repouso.</span>';
+      if (mediaEl) mediaEl.innerHTML = '';
+    } else {
+      if (plRow) {
+        if (playing && p.playing_playlist) {
+          const pos = p.playlist_total > 0
+            ? ' · ' + (p.playlist_index + 1) + '/' + p.playlist_total
+            : '';
+          plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Playlist:</span> <strong>'
+            + (p.playlist_name || p.playlist_id || '—') + '</strong>'
+            + '<span class="text-muted" style="font-size:12px"> ' + pos + '</span>';
+        } else if (playing) {
+          plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Reprodução avulsa.</span>';
+        } else {
+          plRow.innerHTML = '<span class="text-muted" style="font-size:13px">Nenhuma playlist ativa.</span>';
+        }
+      }
+      if (mediaEl) {
+        mediaEl.innerHTML = (playing && p.current_file)
+          ? '<span class="text-muted" style="font-size:13px">Arquivo:</span> <strong>' + p.current_file + '</strong>'
+          : '<span class="text-muted">Nenhuma mídia em reprodução.</span>';
+      }
     }
 
     const ip = document.getElementById('stat-ip');
@@ -146,11 +286,54 @@
 
     const disk = document.getElementById('stat-disk');
     if (disk && data.disk)
-      disk.innerHTML = data.disk.free_gb + ' GB <span class="text-muted">(' + data.disk.percent_used + '% usado)</span>';
+      disk.innerHTML = data.disk.free_gb + ' GB <span class="text-muted">('
+        + data.disk.percent_used + '% usado)</span>';
+
+    // Sincroniza timezone ao receber status
+    if (data.timezone) {
+      const tzEl = document.getElementById('clock-tz');
+      if (tzEl) tzEl.textContent = data.timezone;
+    }
+
+    // Banner de override manual
+    const banner = document.getElementById('manual-override-banner');
+    if (banner) banner.style.display = data.manual_override ? 'flex' : 'none';
+
+    // Badges de agendamentos ativos
+    const activeId = data.active_schedule_id || null;
+    document.querySelectorAll('[id^="sc-active-badge-"]').forEach(el => {
+      const scId = el.id.replace('sc-active-badge-', '');
+      const isActive = (scId === activeId);
+      el.className = 'badge ' + (isActive ? 'badge-success' : 'badge-neutral');
+      el.textContent = isActive ? 'Em execução' : 'Aguardando';
+      const card = el.closest('div[style*="border-radius:8px"]');
+      if (card) {
+        card.style.background = isActive ? 'rgba(79,124,255,.08)' : 'var(--surface2,#1a1d2e)';
+        card.style.borderColor = isActive ? 'rgba(79,124,255,.3)' : 'var(--border)';
+      }
+    });
   }
 
   refreshStatus();
   setInterval(refreshStatus, 10000);
 })();
+
+async function stopPlayer() {
+  try {
+    await fetch('/api/player/stop', { method: 'POST' });
+    document.getElementById('player-live-bar').style.display = 'none';
+    document.getElementById('manual-override-banner').style.display = 'flex';
+  } catch (e) { /* silencioso */ }
+}
+
+async function resumeSchedule() {
+  try {
+    const r = await fetch('/api/player/resume-schedule', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('manual-override-banner').style.display = 'none';
+    }
+  } catch (e) { /* silencioso */ }
+}
 </script>
 {% endblock %}

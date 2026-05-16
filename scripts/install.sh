@@ -73,7 +73,7 @@ sudo -u "$CURRENT_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet -r "$INSTALL
 # ── 4. Permissões sudoers ───────────────────────────────────────────────────
 log "Configurando permissões sudo..."
 cat > "$SUDOERS_FILE" << EOF
-${CURRENT_USER} ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/bin/hostnamectl, /usr/bin/nmcli, /usr/bin/tee /etc/hosts, /usr/bin/cp /tmp/etc_hosts /etc/hosts
+${CURRENT_USER} ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/bin/hostnamectl, /usr/bin/nmcli, /usr/bin/tee /etc/hosts, /usr/bin/cp /tmp/etc_hosts /etc/hosts, /usr/bin/timedatectl set-timezone *, /usr/bin/timedatectl set-ntp *, /usr/bin/systemctl restart systemd-timesyncd
 EOF
 chmod 440 "$SUDOERS_FILE"
 visudo -c -f "$SUDOERS_FILE" || fail "Arquivo sudoers inválido!"

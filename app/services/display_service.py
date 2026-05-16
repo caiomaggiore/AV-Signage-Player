@@ -8,8 +8,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-STATUS_IMAGE  = Path("/opt/av-signage/media/cache/status_screen.png")
-DEFAULT_BG    = Path("/opt/av-signage/media/cache/default_bg.png")
+STATUS_IMAGE        = Path("/opt/av-signage/media/cache/status_screen.png")
+DEFAULT_BG_LANDSCAPE = Path("/opt/av-signage/media/cache/default_bg_landscape.png")
+DEFAULT_BG_PORTRAIT  = Path("/opt/av-signage/media/cache/default_bg_portrait.png")
+DEFAULT_BG           = DEFAULT_BG_LANDSCAPE  # compatibilidade retroativa
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
@@ -80,12 +82,12 @@ def _generate_image(
                 return ImageFont.load_default()
 
         cx = W // 2
-        web_url = f"http://{ip}:8080" if ip and ip != "N/A" else f"http://{hostname}.local:8080"
         mdns_url = f"http://{hostname}.local:8080"
+        web_url  = f"http://{ip}:8080" if ip and ip != "N/A" else mdns_url
 
-        # Gerar QR Code
+        # QR Code aponta sempre para o endereço mDNS (mais estável e profissional)
         qr_size = 220 if portrait else 200
-        qr_img = _make_qr_image(web_url, size=qr_size)
+        qr_img = _make_qr_image(mdns_url, size=qr_size)
 
         if portrait:
             font_title = load_font(FONT_BOLD, 52)
@@ -117,13 +119,13 @@ def _generate_image(
                 draw.text((cx, 445), ip if ip and ip != "N/A" else "Obtendo IP...", font=font_value, fill=TEXT, anchor="mm")
 
                 draw.text((cx, 520), "ACESSE PELO NAVEGADOR", font=font_small, fill=MUTED, anchor="mm")
-                draw.text((cx, 565), web_url, font=font_url, fill=ACCENT, anchor="mm")
-                draw.text((cx, 615), mdns_url, font=font_small, fill=MUTED, anchor="mm")
+                draw.text((cx, 565), mdns_url, font=font_url, fill=ACCENT, anchor="mm")
+                draw.text((cx, 615), web_url,  font=font_small, fill=MUTED,  anchor="mm")
 
                 if qr_img:
                     qr_y = 670
                     img.paste(qr_img, (cx - qr_size // 2, qr_y))
-                    draw.text((cx, qr_y + qr_size + 30), "Aponte a câmera para acessar", font=font_small, fill=MUTED, anchor="mm")
+                    draw.text((cx, qr_y + qr_size + 28), "Aponte a câmera  ·  mesma rede", font=font_small, fill=MUTED, anchor="mm")
 
                 code_y = 1050 if qr_img else 700
                 draw.line([(cx - 280, code_y), (cx + 280, code_y)], fill=SEP, width=1)
@@ -166,21 +168,28 @@ def _generate_image(
                 draw.text((col1_x, 430), "HOSTNAME", font=font_small, fill=MUTED, anchor="mm")
                 draw.text((col1_x, 470), f"{hostname}.local", font=font_value, fill=TEXT, anchor="mm")
                 draw.text((col1_x, 540), "NAVEGADOR", font=font_small, fill=MUTED, anchor="mm")
-                draw.text((col1_x, 580), web_url, font=font_url, fill=ACCENT, anchor="mm")
-                draw.text((col1_x, 620), mdns_url, font=font_small, fill=MUTED, anchor="mm")
+                draw.text((col1_x, 580), mdns_url, font=font_url,   fill=ACCENT, anchor="mm")
+                draw.text((col1_x, 620), web_url,  font=font_small, fill=MUTED,  anchor="mm")
 
                 draw.line([(cx - 10, 300), (cx - 10, 750)], fill=SEP, width=1)
 
-                # Coluna direita: QR Code + pairing
+                # Coluna direita: QR Code centralizado verticalmente
                 if qr_img:
+                    # Área disponível: y=255 (divider) até y=780 (divider inferior)
+                    # Bloco: QR (200px) + gap + 2 linhas texto (~54px) → ~274px
+                    col_top, col_bot = 255, 780
+                    block_h = qr_size + 30 + 54
+                    qr_y = (col_top + col_bot - block_h) // 2
                     qr_x = col2_x - qr_size // 2
-                    qr_y = 290
                     img.paste(qr_img, (qr_x, qr_y))
-                    draw.text((col2_x, qr_y + qr_size + 20), "Aponte a câmera para acessar", font=font_small, fill=MUTED, anchor="mm")
+                    txt_y1 = qr_y + qr_size + 22
+                    txt_y2 = txt_y1 + 30
+                    draw.text((col2_x, txt_y1), "Conecte a mesma rede", font=font_small, fill=MUTED, anchor="mm")
+                    draw.text((col2_x, txt_y2), "· ·  Aponte a câmera  · ·", font=font_small, fill=(75, 82, 100), anchor="mm")
 
                 draw.line([(cx - 300, 780), (cx + 300, 780)], fill=SEP, width=1)
-                draw.text((cx - 300, 840), "CÓDIGO DE PAREAMENTO", font=font_small, fill=MUTED, anchor="lm")
-                draw.text((cx + 60, 900), pairing_code, font=font_code, fill=WHITE, anchor="mm")
+                draw.text((cx, 835), "CÓDIGO DE PAREAMENTO", font=font_small, fill=MUTED, anchor="mm")
+                draw.text((cx, 910), pairing_code, font=font_code, fill=WHITE, anchor="mm")
 
             draw.text((cx, H - 55), f"v{version}  ·  {hostname}", font=font_small, fill=(50, 55, 75), anchor="mm")
 
@@ -197,7 +206,7 @@ def _generate_image(
         return False
 
 
-def _generate_default_bg_image(rotation: int = 0, ip: str = "") -> bool:
+def _generate_default_bg_image(rotation: int = 0, ip: str = "", target: Optional[Path] = None) -> bool:
     """Gera a imagem de standby com a marca Maggiore.AV. Retorna True se sucesso."""
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -255,9 +264,10 @@ def _generate_default_bg_image(rotation: int = 0, ip: str = "") -> bool:
             draw.text((cx, H - 52), f"Acesse  ·  http://{ip}:8080",
                       font=f_addr, fill=ADDR, anchor="mm")
 
-        DEFAULT_BG.parent.mkdir(parents=True, exist_ok=True)
-        img.save(str(DEFAULT_BG))
-        logger.info("BG padrão Maggiore.AV gerado: %dx%d rotation=%d°", W, H, rotation)
+        out = target or (DEFAULT_BG_PORTRAIT if portrait else DEFAULT_BG_LANDSCAPE)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        img.save(str(out))
+        logger.info("BG padrão Maggiore.AV gerado: %dx%d rotation=%d° → %s", W, H, rotation, out.name)
         return True
 
     except ImportError:
@@ -349,13 +359,17 @@ class DisplayService:
         return None
 
     def generate_default_bg(self) -> Optional[Path]:
-        """Gera (ou reutiliza) a imagem padrão Maggiore.AV e retorna o path."""
+        """Gera ambas as versões (paisagem/retrato) do BG padrão e retorna o path adequado à orientação atual."""
         try:
             from app.services.device_service import get_ip
             rotation = _get_rotation()
             ip = get_ip() or ""
-            if _generate_default_bg_image(rotation=rotation, ip=ip):
-                return DEFAULT_BG
+            # Gera ambas as versões na inicialização/atualização
+            _generate_default_bg_image(rotation=0,  ip=ip, target=DEFAULT_BG_LANDSCAPE)
+            _generate_default_bg_image(rotation=90, ip=ip, target=DEFAULT_BG_PORTRAIT)
+            # Retorna a versão correspondente à orientação atual
+            portrait = rotation in (90, 270)
+            return DEFAULT_BG_PORTRAIT if portrait else DEFAULT_BG_LANDSCAPE
         except Exception as e:
             logger.error("Erro ao gerar BG padrão: %s", e)
         return None

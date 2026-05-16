@@ -16,6 +16,8 @@ MEDIA_DIR        = Path("/opt/av-signage/media/local")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ROTATION_DEGREES = {"normal": 0, "right": 90, "left": 270}
 PLAYLIST_FILE    = Path("/tmp/av_signage_playlist.m3u")
+CLOCK_SCRIPT     = Path("/opt/av-signage/scripts/clock_overlay.lua")
+STANDBY_FILES    = {"status_screen.png", "default_bg_landscape.png", "default_bg_portrait.png", "default_bg.png"}
 
 
 def _get_rotation() -> int:
@@ -25,6 +27,14 @@ def _get_rotation() -> int:
         return ROTATION_DEGREES.get(r, 0)
     except Exception:
         return 0
+
+
+def _get_clock_position() -> str:
+    try:
+        from app.services.config_service import config_service
+        return config_service.config.player.clock_position
+    except Exception:
+        return "top-right"
 
 
 def _is_image(filename: str) -> bool:
@@ -76,6 +86,17 @@ class PlayerService:
             "--no-border", "--no-osc", "--no-input-terminal",
             f"--video-rotate={_get_rotation()}",
             "--image-display-duration=inf",
+        ]
+
+    def _clock_args(self) -> list:
+        """Returns --script args for clock overlay (only for standby screens)."""
+        pos      = _get_clock_position()
+        rotation = _get_rotation()
+        if pos == "off" or not CLOCK_SCRIPT.exists():
+            return []
+        return [
+            f"--script={CLOCK_SCRIPT}",
+            f"--script-opts=clock_overlay-position={pos},clock_overlay-rotation={rotation}",
         ]
 
     def _launch(self, extra_args: list) -> None:
@@ -211,7 +232,16 @@ class PlayerService:
                 logger.debug("Default BG error: %s", e)
 
         if standby and standby.exists():
-            self._launch(["--loop-file=inf", str(standby)])
+            extra: list = ["--loop-file=inf"]
+            # Preenche a tela sem distorção (zoom-crop) para imagens de standby
+            if standby.suffix.lower() in IMAGE_EXTENSIONS:
+                extra.append("--panscan=1.0")
+            extra += self._clock_args()
+            extra.append(str(standby))
+            self._launch(extra)
+            # IMPORTANTE: definir _current_file para is_playing() retornar True
+            # e evitar que o scheduler reinicie o mpv a cada 60s
+            self._current_file = standby.name
             logger.info("Standby: %s", standby.name)
         else:
             logger.warning("play_standby: sem imagem disponível — mpv não iniciado.")
@@ -327,8 +357,14 @@ class PlayerService:
 
     def status(self) -> dict:
         playing = self.is_playing()
+        standby = (
+            playing
+            and not self._playing_playlist
+            and self._current_file in STANDBY_FILES
+        )
         return {
             "playing":          playing,
+            "standby":          standby,
             "current_file":     self._current_file if playing else "",
             "loop":             self._loop,
             "playing_playlist": self._playing_playlist and playing,

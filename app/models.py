@@ -37,7 +37,8 @@ class MediaConfig(BaseModel):
     max_upload_mb: int = 2048
 
 
-ROTATION_VALUES = ("normal", "left", "right")
+ROTATION_VALUES  = ("normal", "left", "right")
+CLOCK_POSITIONS  = ("top-right", "top-left", "bottom-right", "bottom-left", "off")
 
 
 class PlayerConfig(BaseModel):
@@ -45,6 +46,7 @@ class PlayerConfig(BaseModel):
     loop_default: bool = True
     fullscreen: bool = True
     display_rotation: str = "normal"
+    clock_position: str = "top-right"
 
     @field_validator("display_rotation")
     @classmethod

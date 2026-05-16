@@ -19,22 +19,28 @@
 <div class="section" id="player-section">
   <h3>Player</h3>
   <div id="player-status-bar">
-    {% if player.playing %}
+    {% if player.playing and not player.get('standby', False) %}
       <p>Reproduzindo: <strong>{{ player.current_file }}</strong>
         &nbsp;<span class="badge badge-success">AO VIVO</span>
         {% if player.get('playing_playlist') %}
           &nbsp;<span class="badge badge-neutral">Playlist: {{ player.playlist_id }}</span>
         {% endif %}
       </p>
+    {% elif player.playing %}
+      <p class="text-muted">Sistema em repouso.</p>
     {% else %}
       <p class="text-muted">Nenhuma mídia em reprodução.</p>
     {% endif %}
   </div>
   <div class="btn-group" style="margin-top:10px">
-    <button class="btn btn-danger" id="btn-stop" onclick="playerStop()" {% if not player.playing %}disabled{% endif %}>
+    <button class="btn btn-danger" id="btn-stop" onclick="playerStop()"
+      {% if player.get('standby', False) %}style="display:none"
+      {% elif not player.playing %}disabled{% endif %}>
       Parar
     </button>
-    <button class="btn btn-secondary" id="btn-restart" onclick="playerRestart()" {% if not player.playing %}disabled{% endif %}>
+    <button class="btn btn-secondary" id="btn-restart" onclick="playerRestart()"
+      {% if player.get('standby', False) %}style="display:none"
+      {% elif not player.playing %}disabled{% endif %}>
       Reiniciar
     </button>
     <button class="btn btn-secondary" id="btn-loop" onclick="toggleLoop()">
@@ -48,8 +54,14 @@
   <h3>Enviar mídia</h3>
   <form id="upload-form" enctype="multipart/form-data">
     <div class="form-group">
-      <label>Arquivo (.mp4, .mov, .mkv, .jpg, .jpeg, .png)</label>
-      <input type="file" id="upload-file" name="file" accept=".mp4,.mov,.mkv,.jpg,.jpeg,.png" required>
+      <label style="color:var(--text-muted);margin-bottom:8px;display:block">Arquivo (.mp4, .mov, .mkv, .jpg, .jpeg, .png)</label>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label for="upload-file" class="btn" style="background:var(--highlight);color:#fff;cursor:pointer;min-width:auto;margin:0">
+          Escolher arquivo
+        </label>
+        <span id="file-name-label" class="text-muted">Nenhum arquivo escolhido</span>
+      </div>
+      <input type="file" id="upload-file" name="file" accept=".mp4,.mov,.mkv,.jpg,.jpeg,.png" required style="display:none">
     </div>
     <div id="upload-progress" style="display:none; margin-bottom:12px">
       <div class="progress-bar-track">
@@ -148,17 +160,25 @@ async function playMedia(filename, type) {
 function updatePlayerUI(data) {
   loopEnabled = data.loop;
   document.getElementById('loop-state').textContent = data.loop ? 'Ligado' : 'Desligado';
-  const bar = document.getElementById('player-status-bar');
+  const bar     = document.getElementById('player-status-bar');
   const btnStop = document.getElementById('btn-stop');
   const btnRestart = document.getElementById('btn-restart');
-  if (data.playing) {
+  if (data.standby) {
+    bar.innerHTML = `<p class="text-muted">Sistema em repouso.</p>`;
+    btnStop.style.display    = 'none';
+    btnRestart.style.display = 'none';
+  } else if (data.playing) {
     let extra = data.playing_playlist ? ` <span class="badge badge-neutral">Playlist</span>` : '';
     bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong> &nbsp;<span class="badge badge-success">AO VIVO</span>${extra}</p>`;
-    btnStop.disabled = false;
+    btnStop.style.display    = '';
+    btnRestart.style.display = '';
+    btnStop.disabled    = false;
     btnRestart.disabled = false;
   } else {
     bar.innerHTML = `<p class="text-muted">Nenhuma mídia em reprodução.</p>`;
-    btnStop.disabled = true;
+    btnStop.style.display    = '';
+    btnRestart.style.display = '';
+    btnStop.disabled    = true;
     btnRestart.disabled = true;
   }
 }
@@ -175,6 +195,11 @@ async function deleteMedia(filename, btn) {
     btn.disabled = false;
   }
 }
+
+document.getElementById('upload-file').addEventListener('change', function() {
+  const label = document.getElementById('file-name-label');
+  label.textContent = this.files[0] ? this.files[0].name : 'Nenhum arquivo escolhido';
+});
 
 document.getElementById('upload-form').addEventListener('submit', async function(e) {
   e.preventDefault();

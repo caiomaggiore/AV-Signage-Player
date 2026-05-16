@@ -12,30 +12,34 @@
 <div class="section" id="player-section">
   <h3>Player</h3>
   <div id="player-status-bar">
-    {% if player.playing %}
+    {% if player.playing and not player.get('standby', False) %}
       <p>Reproduzindo: <strong>{{ player.current_file }}</strong>
         {% if player.get('playing_playlist') %}
-          &nbsp;<span class="badge badge-success">Playlist: {{ player.playlist_id }}</span>
+          &nbsp;<span class="badge badge-success">Playlist: {{ player.playlist_name or player.playlist_id }}</span>
           &nbsp;<span class="text-muted" style="font-size:13px">item {{ player.playlist_index + 1 }}/{{ player.playlist_total }}</span>
         {% else %}
           &nbsp;<span class="badge badge-success">AO VIVO</span>
         {% endif %}
       </p>
+    {% elif player.playing %}
+      <p class="text-muted">Sistema em repouso.</p>
     {% else %}
       <p class="text-muted">Nenhuma mídia em reprodução.</p>
     {% endif %}
   </div>
-  {% if player.playing and player.get('playing_playlist') %}
-  <div class="btn-group" style="margin-top:10px">
-    <button class="btn btn-secondary" onclick="playerPrev()">⏮ Anterior</button>
-    <button class="btn btn-secondary" onclick="playerNext()">Próximo ⏭</button>
-    <button class="btn btn-danger" onclick="playerStop()">Parar</button>
-  </div>
-  {% elif player.playing %}
-  <div class="btn-group" style="margin-top:10px">
-    <button class="btn btn-danger" onclick="playerStop()">Parar</button>
-  </div>
+  <div id="player-controls">
+  {% if player.playing and not player.get('standby', False) and player.get('playing_playlist') %}
+    <div class="btn-group" style="margin-top:10px">
+      <button class="btn btn-secondary" onclick="playerPrev()">⏮ Anterior</button>
+      <button class="btn btn-secondary" onclick="playerNext()">Próximo ⏭</button>
+      <button class="btn btn-danger" onclick="playerStop()">Parar</button>
+    </div>
+  {% elif player.playing and not player.get('standby', False) %}
+    <div class="btn-group" style="margin-top:10px">
+      <button class="btn btn-danger" onclick="playerStop()">Parar</button>
+    </div>
   {% endif %}
+  </div>
 </div>
 
 <!-- Lista de playlists -->
@@ -351,17 +355,34 @@ async function playerPrev() {
 }
 
 function updatePlayerBar(data) {
-  const bar = document.getElementById('player-status-bar');
-  if (data.playing) {
+  const bar      = document.getElementById('player-status-bar');
+  const controls = document.getElementById('player-controls');
+
+  if (data.standby) {
+    bar.innerHTML      = '<p class="text-muted">Sistema em repouso.</p>';
+    controls.innerHTML = '';
+  } else if (data.playing) {
     let extra = '';
     if (data.playing_playlist) {
-      extra = ` <span class="badge badge-success">Playlist: ${data.playlist_id}</span> <span class="text-muted" style="font-size:13px">item ${data.playlist_index+1}/${data.playlist_total}</span>`;
+      extra = ` <span class="badge badge-success">Playlist: ${data.playlist_name || data.playlist_id}</span>`
+            + ` <span class="text-muted" style="font-size:13px">item ${data.playlist_index+1}/${data.playlist_total}</span>`;
+      controls.innerHTML =
+        `<div class="btn-group" style="margin-top:10px">
+          <button class="btn btn-secondary" onclick="playerPrev()">⏮ Anterior</button>
+          <button class="btn btn-secondary" onclick="playerNext()">Próximo ⏭</button>
+          <button class="btn btn-danger"    onclick="playerStop()">Parar</button>
+        </div>`;
     } else {
       extra = ' <span class="badge badge-success">AO VIVO</span>';
+      controls.innerHTML =
+        `<div class="btn-group" style="margin-top:10px">
+          <button class="btn btn-danger" onclick="playerStop()">Parar</button>
+        </div>`;
     }
     bar.innerHTML = `<p>Reproduzindo: <strong>${data.current_file}</strong>${extra}</p>`;
   } else {
-    bar.innerHTML = '<p class="text-muted">Nenhuma mídia em reprodução.</p>';
+    bar.innerHTML      = '<p class="text-muted">Nenhuma mídia em reprodução.</p>';
+    controls.innerHTML = '';
   }
 }
 

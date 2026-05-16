@@ -12,40 +12,53 @@
   Define qual playlist é tocada em cada dia e horário. Quando não há agendamento ativo, a playlist padrão é usada.
 </p>
 
-<!-- Mídia de fundo (standby) -->
-<div class="section">
-  <h3>Mídia de fundo (standby)</h3>
-  <p class="text-muted" style="font-size:13px; margin-bottom:12px">
-    Exibida em loop quando nenhuma playlist está tocando. Se vazio, mostra a tela de status com IP e QR Code.
-  </p>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <select id="bg-select" style="flex:1; max-width:360px">
-      <option value="">— Nenhuma (exibir tela de status) —</option>
-      {% for f in files %}
-      <option value="{{ f.name }}" {% if f.name == bg_media %}selected{% endif %}>
-        {{ f.name }} ({{ 'Imagem' if f.type == 'image' else 'Vídeo' }})
-      </option>
-      {% endfor %}
-    </select>
-    <button class="btn btn-secondary" onclick="saveBgMedia()">Salvar</button>
-  </div>
-  <div id="bg-ok" class="alert alert-success" style="display:none; margin-top:8px"></div>
-</div>
+<!-- ── Mídia de fundo + Playlist padrão (50/50) ────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
-<!-- Playlist padrão (fallback) -->
-<div class="section">
-  <h3>Playlist padrão (fallback)</h3>
-  <p class="text-muted" style="font-size:13px; margin-bottom:12px">Tocada quando nenhum agendamento está ativo.</p>
-  <div class="btn-group" style="align-items:center">
-    <select id="fallback-select" style="flex:1; max-width:320px">
-      <option value="">— Nenhuma (exibir tela de status) —</option>
-      {% for pl in playlists %}
-      <option value="{{ pl.id }}" {% if pl.id == fallback_playlist_id %}selected{% endif %}>{{ pl.name }}</option>
-      {% endfor %}
-    </select>
-    <button class="btn btn-secondary" onclick="saveFallback()">Salvar</button>
+  <!-- Mídia de fundo (standby) -->
+  <div class="section section-form" style="margin-bottom:0">
+    <h3>Mídia de fundo (standby)</h3>
+    <p class="text-muted" style="font-size:13px;margin-bottom:12px">
+      Exibida em loop quando nenhuma playlist está tocando. Se vazio, mostra a tela de status com IP e QR Code.
+    </p>
+    <div class="module-foot">
+      <div class="form-group" style="margin-bottom:0">
+        <div class="ctrl-row">
+          <select id="bg-select">
+            <option value="">— Nenhuma (tela de status) —</option>
+            {% for f in files %}
+            <option value="{{ f.name }}" {% if f.name == bg_media %}selected{% endif %}>
+              {{ f.name }} ({{ 'Imagem' if f.type == 'image' else 'Vídeo' }})
+            </option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary" onclick="saveBgMedia()">Salvar</button>
+        </div>
+      </div>
+      <div id="bg-ok" class="alert alert-success" style="display:none;margin-top:8px"></div>
+    </div>
   </div>
-  <div id="fallback-ok" class="alert alert-success" style="display:none; margin-top:8px"></div>
+
+  <!-- Playlist padrão (fallback) -->
+  <div class="section section-form" style="margin-bottom:0">
+    <h3>Playlist padrão (fallback)</h3>
+    <p class="text-muted" style="font-size:13px;margin-bottom:12px">Tocada quando nenhum agendamento está ativo.</p>
+    <div class="module-foot">
+      <div class="form-group" style="margin-bottom:0">
+        <div class="ctrl-row">
+          <select id="fallback-select">
+            <option value="">— Nenhuma (tela de status) —</option>
+            {% for pl in playlists %}
+            <option value="{{ pl.id }}" {% if pl.id == fallback_playlist_id %}selected{% endif %}>{{ pl.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary" onclick="saveFallback()">Salvar</button>
+        </div>
+      </div>
+      <div id="fallback-ok" class="alert alert-success" style="display:none;margin-top:8px"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Lista de agendamentos -->

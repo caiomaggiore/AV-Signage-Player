@@ -14,52 +14,239 @@
   <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-<!-- Rotação de tela -->
-<div class="section">
-  <h3>Orientação do monitor</h3>
-  <p class="text-muted" style="margin-bottom:14px">Configure a rotação do conteúdo exibido no monitor conectado via HDMI.</p>
-  <div class="form-group" style="max-width:320px">
-    <label>Rotação</label>
-    <select id="rotation-select">
-      <option value="normal" {% if display_rotation == 'normal' %}selected{% endif %}>Paisagem (padrão)</option>
-      <option value="right" {% if display_rotation == 'right' %}selected{% endif %}>Retrato — girado à direita (90°)</option>
-      <option value="left" {% if display_rotation == 'left' %}selected{% endif %}>Retrato — girado à esquerda (270°)</option>
-    </select>
+<!-- ── Módulo único: Relógio & Fuso Horário (100% largura) ──────────────── -->
+<div class="section" style="margin-bottom:16px;position:relative;overflow:visible" id="datetime">
+  <h3>Relógio e Fuso Horário</h3>
+
+  <!-- Prévia flutuante de posição do relógio (absoluta, sobrepõe o módulo) -->
+  <div id="monitor-preview" style="
+    position:absolute;
+    top:12px;
+    right:12px;
+    {% if display_rotation in ['right','left'] %}width:55px;aspect-ratio:9/16;{% else %}width:160px;aspect-ratio:16/9;{% endif %}
+    background:var(--surface2);
+    border:2px solid var(--border);
+    border-radius:5px;
+    overflow:hidden;
+    z-index:2;
+    pointer-events:none;
+  ">
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 5px,rgba(128,128,128,.05) 5px,rgba(128,128,128,.05) 6px)"></div>
+    <div id="clock-indicator" style="
+      position:absolute;
+      background:var(--highlight);
+      color:#fff;
+      font-size:9px;
+      font-weight:900;
+      width:14px;height:14px;
+      display:flex;align-items:center;justify-content:center;
+      border-radius:3px;
+      {% if clock_position == 'top-right'    %}top:8%;right:8%;{% endif %}
+      {% if clock_position == 'top-left'     %}top:8%;left:8%;{% endif %}
+      {% if clock_position == 'bottom-right' %}bottom:8%;right:8%;{% endif %}
+      {% if clock_position == 'bottom-left'  %}bottom:8%;left:8%;{% endif %}
+      {% if clock_position == 'off'          %}display:none;{% endif %}
+    ">H</div>
   </div>
-  <div id="rotation-ok" class="alert alert-success" style="display:none;margin-top:10px"></div>
-  <div id="rotation-err" class="alert alert-error" style="display:none;margin-top:10px"></div>
-  <button class="btn btn-primary" style="margin-top:8px" onclick="saveRotation()">Aplicar rotação</button>
+
+  <!-- Display do relógio (com padding-right para não colidir com a prévia) -->
+  <div style="display:flex;align-items:center;gap:20px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border);padding-right:110px">
+    <div id="dt-clock" style="font-size:32px;font-weight:700;letter-spacing:2px;font-variant-numeric:tabular-nums">--:--:--</div>
+    <div>
+      <div id="dt-date" style="color:var(--text-muted)">--/--/----</div>
+      <div style="color:var(--text-muted);margin-top:2px">Fuso: <span id="dt-tz" style="font-weight:600;color:var(--text)">—</span></div>
+    </div>
+  </div>
+
+  <!-- Grade interna 50/50: Fuso | Relógio no display -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+
+    <!-- Coluna esquerda: Fuso horário -->
+    <div>
+      <p class="text-muted" style="margin-bottom:12px">
+        O relógio do sistema é usado para disparar as agendas de playlist.
+      </p>
+      <div class="form-group" style="margin-bottom:8px">
+        <label>Fuso horário</label>
+        <div class="ctrl-row">
+          <select id="tz-select">
+            <optgroup label="Brasil">
+              <option value="America/Sao_Paulo">America/Sao_Paulo — Brasília (UTC-3)</option>
+              <option value="America/Fortaleza">America/Fortaleza — Ceará / Nordeste (UTC-3)</option>
+              <option value="America/Belem">America/Belem — Pará / Norte (UTC-3)</option>
+              <option value="America/Recife">America/Recife — Recife (UTC-3)</option>
+              <option value="America/Maceio">America/Maceio — Alagoas (UTC-3)</option>
+              <option value="America/Bahia">America/Bahia — Bahia (UTC-3)</option>
+              <option value="America/Manaus">America/Manaus — Amazonas (UTC-4)</option>
+              <option value="America/Boa_Vista">America/Boa_Vista — Roraima (UTC-4)</option>
+              <option value="America/Porto_Velho">America/Porto_Velho — Rondônia (UTC-4)</option>
+              <option value="America/Rio_Branco">America/Rio_Branco — Acre (UTC-5)</option>
+              <option value="America/Noronha">America/Noronha — Fernando de Noronha (UTC-2)</option>
+            </optgroup>
+            <optgroup label="Internacional">
+              <option value="UTC">UTC</option>
+              <option value="America/New_York">America/New_York (UTC-5/-4)</option>
+              <option value="America/Los_Angeles">America/Los_Angeles (UTC-8/-7)</option>
+              <option value="Europe/Lisbon">Europe/Lisbon (UTC+0/+1)</option>
+              <option value="Europe/London">Europe/London (UTC+0/+1)</option>
+              <option value="Europe/Madrid">Europe/Madrid (UTC+1/+2)</option>
+            </optgroup>
+          </select>
+          <button class="btn btn-primary" onclick="saveDatetime()">Aplicar</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+        <button class="btn btn-secondary btn-full" onclick="syncNTP()">Sincronizar NTP</button>
+        <button class="btn btn-secondary btn-full" onclick="syncFromBrowser()" title="Usa a hora do computador conectado, sem internet">Hora deste dispositivo</button>
+      </div>
+      <span id="dt-ntp-status" class="text-muted" style="font-size:12px"></span>
+      <div id="dt-ok"  class="alert alert-success" style="display:none;margin-top:10px"></div>
+      <div id="dt-err" class="alert alert-error"   style="display:none;margin-top:10px"></div>
+    </div>
+
+    <!-- Coluna direita: Relógio no display -->
+    <div>
+      <p class="text-muted" style="margin-bottom:12px">
+        Posição do relógio exibido na tela conectada. Não aparece durante playlists.
+      </p>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Posição na tela</label>
+        <div class="ctrl-row">
+          <select id="clock-pos-select">
+            <option value="top-right"    {% if clock_position == 'top-right'    %}selected{% endif %}>Superior direito</option>
+            <option value="top-left"     {% if clock_position == 'top-left'     %}selected{% endif %}>Superior esquerdo</option>
+            <option value="bottom-right" {% if clock_position == 'bottom-right' %}selected{% endif %}>Inferior direito</option>
+            <option value="bottom-left"  {% if clock_position == 'bottom-left'  %}selected{% endif %}>Inferior esquerdo</option>
+            <option value="off"          {% if clock_position == 'off'          %}selected{% endif %}>Desativado</option>
+          </select>
+          <button class="btn btn-primary" onclick="saveClockPos()">Aplicar</button>
+        </div>
+      </div>
+      <div id="clock-pos-ok"  class="alert alert-success" style="display:none;margin-top:10px"></div>
+      <div id="clock-pos-err" class="alert alert-error"   style="display:none;margin-top:10px"></div>
+    </div>
+
+  </div><!-- /grade interna -->
+
+  <!-- Box de setup sudo (oculto por padrão) -->
+  <div id="dt-sudo-setup" style="display:none;margin-top:16px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+    <p style="font-size:13px;font-weight:600;margin-bottom:6px;color:#f59e0b">⚠ Permissão sudo necessária (setup único)</p>
+    <p class="text-muted" style="font-size:12px;margin-bottom:10px">
+      Execute via SSH para liberar a alteração de timezone sem senha:
+    </p>
+    <div style="position:relative">
+      <code id="dt-setup-cmd" style="display:block;font-size:11px;background:var(--bg);border:1px solid var(--border);padding:10px 12px;border-radius:6px;word-break:break-all;color:var(--success);line-height:1.6"></code>
+      <button onclick="copySudoCmd()" style="position:absolute;top:6px;right:8px;font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer">Copiar</button>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin-top:8px">Após executar, tente novamente aqui.</p>
+  </div>
+
 </div>
 
-<!-- Reboot -->
-<div class="section">
-  <h3>Sistema</h3>
-  <p class="text-muted" style="margin-bottom:12px">Reinicia o Raspberry Pi. A interface ficará indisponível por cerca de 30 segundos.</p>
-  <button class="btn btn-secondary" onclick="confirmReboot()">Reiniciar dispositivo</button>
+<!-- ── Linha 2: Reiniciar + Orientação (50/50) ────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Reboot -->
+  <div class="section section-form" style="margin-bottom:0">
+    <h3>Reiniciar</h3>
+    <p class="text-muted" style="margin-bottom:14px;font-size:13px">Reinicia o Raspberry Pi. A interface ficará indisponível por cerca de 30 segundos.</p>
+    <div class="module-foot">
+      <button class="btn btn-secondary" onclick="confirmReboot()">Reiniciar dispositivo</button>
+    </div>
+  </div>
+
+  <!-- Orientação -->
+  <div class="section section-form" style="margin-bottom:0">
+    <h3>Orientação do monitor</h3>
+    <p class="text-muted" style="margin-bottom:14px;font-size:13px">Configure a rotação do conteúdo exibido no monitor via HDMI.</p>
+    <div class="module-foot">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Rotação</label>
+        <div class="ctrl-row">
+          <select id="rotation-select">
+            <option value="normal" {% if display_rotation == 'normal' %}selected{% endif %}>Paisagem (padrão)</option>
+            <option value="right"  {% if display_rotation == 'right'  %}selected{% endif %}>Retrato — direita (90°)</option>
+            <option value="left"   {% if display_rotation == 'left'   %}selected{% endif %}>Retrato — esquerda (270°)</option>
+          </select>
+          <button class="btn btn-primary" onclick="saveRotation()">Aplicar</button>
+        </div>
+      </div>
+      <div id="rotation-ok" class="alert alert-success" style="display:none;margin-top:8px"></div>
+      <div id="rotation-err" class="alert alert-error"  style="display:none;margin-top:8px"></div>
+    </div>
+  </div>
+
 </div>
 
-<!-- Reset de configuração -->
-<div class="section">
-  <h3>Reset de configuração</h3>
-  <p class="text-muted" style="margin-bottom:4px">Restaura as configurações de fábrica <strong>sem apagar as mídias</strong>.</p>
-  <p class="text-muted" style="margin-bottom:12px; font-size:13px">Remove: nome do dispositivo, configuração de rede, senha, pareamento com servidor.</p>
-  <div class="reset-warning">
-    <span class="badge badge-warning">Atenção</span>
-    <span class="text-muted" style="font-size:13px; margin-left:8px">Esta ação é irreversível. Os vídeos serão preservados.</span>
+<!-- ── Linha 3: Reset Config + Factory Reset (50/50) ─────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Reset de configuração -->
+  <div class="section" style="margin-bottom:0">
+    <h3>Reset de configuração</h3>
+    <p class="text-muted" style="margin-bottom:4px;font-size:13px">Restaura as configurações de fábrica <strong>sem apagar as mídias</strong>.</p>
+    <p class="text-muted" style="margin-bottom:12px;font-size:12px">Remove: nome, rede, senha e pareamento com servidor.</p>
+    <div class="reset-warning">
+      <span class="badge badge-warning">Atenção</span>
+      <span class="text-muted" style="font-size:12px;margin-left:8px">Irreversível. Vídeos preservados.</span>
+    </div>
+    <button class="btn btn-danger btn-sm" style="margin-top:12px" onclick="confirmReset()">Resetar configuração</button>
   </div>
-  <button class="btn btn-danger" style="margin-top:12px" onclick="confirmReset()">Resetar configuração</button>
+
+  <!-- Factory reset -->
+  <div class="section" style="margin-bottom:0">
+    <h3>Factory reset</h3>
+    <p class="text-muted" style="margin-bottom:4px;font-size:13px">Apaga <strong>tudo</strong> — configurações e mídias.</p>
+    <p class="text-muted" style="margin-bottom:12px;font-size:12px">O dispositivo voltará ao estado de recém-instalado.</p>
+    <div class="reset-warning">
+      <span class="badge badge-danger">Perigo</span>
+      <span class="text-muted" style="font-size:12px;margin-left:8px">Apaga todos os vídeos. Irreversível.</span>
+    </div>
+    <button class="btn btn-danger btn-sm" style="margin-top:12px" onclick="confirmFactory()">Factory reset completo</button>
+  </div>
+
 </div>
 
-<!-- Factory reset -->
-<div class="section">
-  <h3>Factory reset</h3>
-  <p class="text-muted" style="margin-bottom:4px">Apaga <strong>tudo</strong> — configurações e mídias.</p>
-  <p class="text-muted" style="margin-bottom:12px; font-size:13px">O dispositivo voltará ao estado de recém-instalado.</p>
-  <div class="reset-warning">
-    <span class="badge badge-danger">Perigo</span>
-    <span class="text-muted" style="font-size:13px; margin-left:8px">Esta ação apaga todos os vídeos. Não pode ser desfeita.</span>
+<!-- ── Linha 4: Alterar Senha (50%) ────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <div class="section section-form" style="margin-bottom:0">
+    <h3>Alterar senha</h3>
+    <p class="text-muted" style="margin-bottom:14px">
+      Redefina a senha de acesso à interface web do sistema.
+    </p>
+    <div class="module-foot">
+      <button class="btn btn-secondary" onclick="openPwModal()">Alterar senha...</button>
+    </div>
   </div>
-  <button class="btn btn-danger" style="margin-top:12px" onclick="confirmFactory()">Factory reset completo</button>
+
+  <div></div>
+
+</div>
+
+<!-- Modal: Alterar senha -->
+<div id="pw-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-card">
+    <h3 style="margin-bottom:16px;color:var(--text)">Alterar senha</h3>
+    <div class="form-group" style="margin-bottom:10px">
+      <label>Senha atual</label>
+      <input type="password" id="pw-current" placeholder="••••••" autocomplete="current-password">
+    </div>
+    <div class="form-group" style="margin-bottom:10px">
+      <label>Nova senha</label>
+      <input type="password" id="pw-new" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Confirmar nova senha</label>
+      <input type="password" id="pw-confirm" placeholder="Repita a nova senha" autocomplete="new-password">
+    </div>
+    <div id="pw-ok"  class="alert alert-success" style="display:none;margin-bottom:10px"></div>
+    <div id="pw-err" class="alert alert-error"   style="display:none;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="changePassword()">Confirmar</button>
+      <button class="btn btn-secondary" onclick="closePwModal()">Cancelar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal de confirmação -->
@@ -80,6 +267,187 @@
 </div>
 
 <script>
+// ── Relógio e timezone ───────────────────────────────────────────────────────
+let _dtOffset = 0;
+function _padZ(n) { return String(n).padStart(2, '0'); }
+
+function _tickDt() {
+  const now = new Date(Date.now() + _dtOffset);
+  const te = document.getElementById('dt-clock');
+  const de = document.getElementById('dt-date');
+  if (te) te.textContent = _padZ(now.getHours()) + ':' + _padZ(now.getMinutes()) + ':' + _padZ(now.getSeconds());
+  if (de) de.textContent = _padZ(now.getDate()) + '/' + _padZ(now.getMonth()+1) + '/' + now.getFullYear();
+}
+
+async function _loadCurrentTime() {
+  try {
+    const r = await fetch('/api/system/time', { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    _dtOffset = new Date(d.datetime).getTime() - Date.now();
+    const tzEl = document.getElementById('dt-tz');
+    if (tzEl) tzEl.textContent = d.timezone || '—';
+    // Pré-seleciona o fuso atual no select
+    const sel = document.getElementById('tz-select');
+    if (sel && d.timezone) {
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === d.timezone) { sel.selectedIndex = i; break; }
+      }
+    }
+  } catch (e) { /* silencioso */ }
+}
+
+setInterval(_tickDt, 1000);
+_loadCurrentTime();
+_tickDt();
+
+function _handleSudoSetup(data, errDiv) {
+  if (data.sudo_setup_required) {
+    const box = document.getElementById('dt-sudo-setup');
+    const cmd = document.getElementById('dt-setup-cmd');
+    if (cmd) cmd.textContent = data.setup_command || '';
+    if (box) box.style.display = 'block';
+    errDiv.textContent = data.error || 'Permissão sudo necessária.';
+    errDiv.style.display = 'block';
+    return true;
+  }
+  return false;
+}
+
+function copySudoCmd() {
+  const cmd = document.getElementById('dt-setup-cmd');
+  if (cmd && navigator.clipboard) {
+    navigator.clipboard.writeText(cmd.textContent).then(() => {
+      const btn = event.target;
+      btn.textContent = 'Copiado!';
+      setTimeout(() => { btn.textContent = 'Copiar'; }, 2000);
+    });
+  }
+}
+
+async function saveDatetime() {
+  const okDiv  = document.getElementById('dt-ok');
+  const errDiv = document.getElementById('dt-err');
+  okDiv.style.display = errDiv.style.display = 'none';
+  document.getElementById('dt-sudo-setup').style.display = 'none';
+  const tz = document.getElementById('tz-select').value;
+  try {
+    const r = await fetch('/api/system/time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timezone: tz }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      okDiv.textContent = 'Fuso horário alterado para ' + tz + '. O relógio foi atualizado.';
+      okDiv.style.display = 'block';
+      document.getElementById('dt-tz').textContent = tz;
+      await _loadCurrentTime();
+    } else {
+      if (_handleSudoSetup(data, errDiv)) return;
+      errDiv.textContent = data.error || 'Erro ao salvar.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
+async function saveClockPos() {
+  const okDiv  = document.getElementById('clock-pos-ok');
+  const errDiv = document.getElementById('clock-pos-err');
+  okDiv.style.display = errDiv.style.display = 'none';
+  const pos = document.getElementById('clock-pos-select').value;
+  try {
+    const r = await fetch('/api/player/clock-position', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position: pos }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      okDiv.textContent = pos === 'off'
+        ? 'Relógio desativado no display.'
+        : 'Posição do relógio aplicada: ' + pos + '.';
+      okDiv.style.display = 'block';
+    } else {
+      errDiv.textContent = data.error || 'Erro ao aplicar.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
+async function syncFromBrowser() {
+  const statusEl = document.getElementById('dt-ntp-status');
+  const okDiv    = document.getElementById('dt-ok');
+  const errDiv   = document.getElementById('dt-err');
+  okDiv.style.display = errDiv.style.display = 'none';
+  document.getElementById('dt-sudo-setup').style.display = 'none';
+  statusEl.textContent = 'Enviando hora…';
+  // Envia hora LOCAL (não UTC) para evitar problemas de fuso
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const localStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  try {
+    const r = await fetch('/api/system/time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ datetime: localStr }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = '';
+      okDiv.textContent = 'Hora do dispositivo aplicada ao Pi.';
+      okDiv.style.display = 'block';
+      await _loadCurrentTime();
+    } else {
+      statusEl.textContent = '';
+      if (_handleSudoSetup(data, errDiv)) return;
+      errDiv.textContent = data.error || 'Erro ao aplicar hora.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    statusEl.textContent = '';
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
+async function syncNTP() {
+  const statusEl = document.getElementById('dt-ntp-status');
+  const errDiv   = document.getElementById('dt-err');
+  statusEl.textContent = 'Sincronizando…';
+  errDiv.style.display = 'none';
+  document.getElementById('dt-sudo-setup').style.display = 'none';
+  try {
+    const r = await fetch('/api/system/time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sync_ntp: true }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = 'Sincronizado!';
+      await _loadCurrentTime();
+      setTimeout(() => { statusEl.textContent = ''; }, 4000);
+    } else {
+      statusEl.textContent = '';
+      if (_handleSudoSetup(data, errDiv)) return;
+      errDiv.textContent = data.error || 'Erro ao sincronizar NTP.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    statusEl.textContent = '';
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
+// ── Rotação ──────────────────────────────────────────────────────────────────
 async function saveRotation() {
   const okDiv = document.getElementById('rotation-ok');
   const errDiv = document.getElementById('rotation-err');
@@ -195,6 +563,89 @@ async function executeAction() {
 document.getElementById('modal-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') executeAction();
   if (e.key === 'Escape') closeModal();
+});
+
+// ── Alterar senha (modal) ────────────────────────────────────────────────────
+function openPwModal() {
+  document.getElementById('pw-current').value = '';
+  document.getElementById('pw-new').value     = '';
+  document.getElementById('pw-confirm').value = '';
+  document.getElementById('pw-ok').style.display  = 'none';
+  document.getElementById('pw-err').style.display = 'none';
+  document.getElementById('pw-modal').style.display = 'flex';
+}
+function closePwModal() {
+  document.getElementById('pw-modal').style.display = 'none';
+}
+document.getElementById('pw-modal').addEventListener('click', function(e) {
+  if (e.target === this) closePwModal();
+});
+
+async function changePassword() {
+  const okDiv  = document.getElementById('pw-ok');
+  const errDiv = document.getElementById('pw-err');
+  okDiv.style.display = errDiv.style.display = 'none';
+  const current = document.getElementById('pw-current').value;
+  const newPw   = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  if (!current || !newPw || !confirm) {
+    errDiv.textContent = 'Preencha todos os campos.';
+    errDiv.style.display = 'block';
+    return;
+  }
+  try {
+    const r = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, new_password: newPw, confirm_password: confirm }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      okDiv.textContent = 'Senha alterada com sucesso.';
+      okDiv.style.display = 'block';
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value     = '';
+      document.getElementById('pw-confirm').value = '';
+      setTimeout(closePwModal, 1800);
+    } else {
+      errDiv.textContent = data.error || 'Erro ao alterar senha.';
+      errDiv.style.display = 'block';
+    }
+  } catch {
+    errDiv.textContent = 'Erro de conexão.';
+    errDiv.style.display = 'block';
+  }
+}
+
+// ── Simulador de posição do relógio ─────────────────────────────────────────
+function updateClockPreview() {
+  const sel = document.getElementById('clock-pos-select');
+  const ind = document.getElementById('clock-indicator');
+  if (!sel || !ind) return;
+  const pos = sel.value;
+  ind.style.top = ind.style.bottom = ind.style.left = ind.style.right = '';
+  if (pos === 'off') { ind.style.display = 'none'; return; }
+  ind.style.display = 'block';
+  const m = '8%';
+  if (pos.includes('top'))    ind.style.top    = m;
+  if (pos.includes('bottom')) ind.style.bottom = m;
+  if (pos.includes('right'))  ind.style.right  = m;
+  if (pos.includes('left'))   ind.style.left   = m;
+}
+
+function updateMonitorPreview() {
+  const rotSel  = document.getElementById('rotation-select');
+  const preview = document.getElementById('monitor-preview');
+  if (!rotSel || !preview) return;
+  const portrait = rotSel.value === 'right' || rotSel.value === 'left';
+  preview.style.width       = portrait ? '55px'  : '160px';
+  preview.style.aspectRatio = portrait ? '9/16'  : '16/9';
+}
+
+document.getElementById('clock-pos-select').addEventListener('change', updateClockPreview);
+document.getElementById('rotation-select').addEventListener('change', function() {
+  updateMonitorPreview();
+  updateClockPreview();
 });
 </script>
 {% endblock %}

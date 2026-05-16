@@ -44,13 +44,47 @@ STATIC_DIR = Path("/opt/av-signage/web/static")
 
 _schedule_task: Optional[asyncio.Task] = None
 
+# Últimos valores conhecidos para detecção de mudanças na tela de status
+_last_status_ip:      str = ""
+_last_status_pairing: str = ""
+
 
 # ---------------------------------------------------------------------------
 # ScheduleRunner — verifica agendamentos a cada 60s
 # ---------------------------------------------------------------------------
 
+def _check_status_screen_refresh() -> None:
+    """Regenera a tela de status APENAS se IP ou código de pareamento mudaram.
+
+    Chamada pelo ScheduleRunner a cada ciclo. Não faz nada se o player não
+    estiver exibindo status_screen.png (ex.: BG do usuário, playlist ativa).
+    """
+    global _last_status_ip, _last_status_pairing
+
+    ps = player_service.status()
+    # Só age quando a tela de status está visível
+    if not (ps.get("playing") and ps.get("current_file") == "status_screen.png"):
+        return
+
+    try:
+        current_ip      = device_service.get_ip() or "N/A"
+        current_pairing = config_service.pairing.pairing_code
+
+        if current_ip != _last_status_ip or current_pairing != _last_status_pairing:
+            logger.info(
+                "Tela de status desatualizada (IP: %s→%s | pairing mudou: %s) — regenerando.",
+                _last_status_ip, current_ip,
+                current_pairing != _last_status_pairing,
+            )
+            _last_status_ip      = current_ip
+            _last_status_pairing = current_pairing
+            player_service.play_standby()
+    except Exception as e:
+        logger.error("Erro ao verificar atualização de tela de status: %s", e)
+
+
 async def _schedule_runner() -> None:
-    """Background task: verifica e executa agendamentos locais."""
+    """Background task: verifica agendamentos e monitora mudanças de IP/pareamento."""
     logger.info("ScheduleRunner iniciado.")
     loop = asyncio.get_event_loop()
     while True:
@@ -58,6 +92,7 @@ async def _schedule_runner() -> None:
             await asyncio.sleep(60)
             # Roda em executor para não bloquear o event loop do FastAPI
             await loop.run_in_executor(None, _check_schedule)
+            await loop.run_in_executor(None, _check_status_screen_refresh)
         except asyncio.CancelledError:
             logger.info("ScheduleRunner encerrado.")
             break
@@ -66,19 +101,19 @@ async def _schedule_runner() -> None:
 
 
 def _check_schedule() -> None:
-    """Lógica de verificação de agendamento. Chamada pelo runner e na inicialização."""
-    state = config_service.state
-    if state.manual_override:
-        # Em modo manual: não inicia conteúdo automático, mas garante standby na tela
-        if not player_service.is_playing():
-            player_service.play_standby()
-        return
+    """Lógica de verificação de agendamento. Chamada pelo runner e na inicialização.
 
+    Prioridade:
+      1. Agenda ativa → sempre executa, mesmo com manual_override=True
+      2. manual_override=True + sem agenda → standby (sem fallback automático)
+      3. Sem agenda + sem override → playlist padrão (fallback) ou standby
+    """
+    # ── 1. Agenda ativa tem prioridade ABSOLUTA ────────────────────────────────
     active = schedule_service.get_active_schedule()
     if active:
         playlist_id = active["playlist_id"]
         ps = player_service.status()
-        # Só troca se não está já tocando esta playlist
+        # Só troca se não está já tocando EXATAMENTE esta playlist
         if not ps.get("playing_playlist") or ps.get("playlist_id") != playlist_id:
             pl = playlist_service.get_playlist(playlist_id)
             if pl and pl.get("items"):
@@ -90,17 +125,27 @@ def _check_schedule() -> None:
                     stinger_duration=pl.get("stinger_duration", 1),
                     name=pl.get("name", ""),
                 )
+                # Agenda iniciada: limpa override manual automaticamente
                 config_service.save_state(
                     active_schedule_id=active["id"],
                     last_playlist=playlist_id,
+                    manual_override=False,
                 )
                 logger.info("Agendamento ativo: %s → playlist: %s", active["name"], playlist_id)
         return
 
-    # Sem agenda ativa — checar playlist padrão
+    # ── 2. Sem agenda ativa ────────────────────────────────────────────────────
+    state = config_service.state
+    if state.manual_override:
+        # Modo manual: usuário parou ou tocou algo manualmente.
+        # Não inicia conteúdo automático — apenas garante standby na tela.
+        if not player_service.is_playing():
+            player_service.play_standby()
+        return
+
+    # ── 3. Sem agenda, sem override → playlist padrão ou standby ──────────────
     fallback_id = schedule_service.get_fallback_playlist_id()
     if fallback_id:
-        # Não reinicia se a mesma playlist já está configurada e o mpv está vivo
         already_playing = (
             player_service.current_playlist_id == fallback_id
             and player_service.mpv_alive()
@@ -119,8 +164,12 @@ def _check_schedule() -> None:
                 config_service.save_state(last_playlist=fallback_id, active_schedule_id="")
                 logger.info("Playlist padrão iniciada: %s", fallback_id)
     else:
-        if not player_service.is_playing():
+        # Sem fallback: standby. Se ainda há uma playlist rodando (agenda expirou),
+        # interrompe e exibe standby.
+        playlist_still_running = player_service._playing_playlist and player_service.is_playing()
+        if playlist_still_running or not player_service.is_playing():
             player_service.play_standby()
+            config_service.save_state(active_schedule_id="")
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +185,8 @@ async def lifespan(app: FastAPI):
 
     # Pequena pausa para o DRM/display estabilizar no boot antes de iniciar o mpv
     await asyncio.sleep(3)
+    # Sempre reset manual_override no boot para que a agenda rode normalmente
+    config_service.save_state(manual_override=False)
     _check_schedule()
     # play_standby já é chamado por _check_schedule quando não há conteúdo agendado
 
@@ -252,6 +303,28 @@ async def logout(request: Request):
     return response
 
 
+@app.post("/api/auth/change-password")
+async def api_change_password(request: Request):
+    redirect = require_auth(request)
+    if redirect:
+        return JSONResponse({"error": "Não autorizado."}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Dados inválidos."}, status_code=400)
+    current = body.get("current_password", "")
+    new_pw  = body.get("new_password", "")
+    confirm = body.get("confirm_password", "")
+    if not auth_service.verify_password(current):
+        return JSONResponse({"error": "Senha atual incorreta."}, status_code=400)
+    if len(new_pw) < 6:
+        return JSONResponse({"error": "A nova senha deve ter no mínimo 6 caracteres."}, status_code=400)
+    if new_pw != confirm:
+        return JSONResponse({"error": "As senhas não conferem."}, status_code=400)
+    auth_service.set_password(new_pw)
+    return JSONResponse({"ok": True})
+
+
 # ---------------------------------------------------------------------------
 # Páginas web — Dashboard
 # ---------------------------------------------------------------------------
@@ -267,6 +340,12 @@ async def dashboard(request: Request):
     pairing = config_service.pairing
     ps = player_service.status()
     dev = device_service.get_device_info()
+
+    sched_list   = schedule_service.list_schedules()
+    active_sc    = schedule_service.get_active_schedule()
+    active_sc_id = active_sc["id"] if active_sc else None
+    pl_list      = playlist_service.list_playlists()
+    pl_names     = {p["id"]: p["name"] for p in pl_list}
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
@@ -296,6 +375,9 @@ async def dashboard(request: Request):
         "device_id": identity.device_id,
         "model": dev["model"],
         "hardware_profile": dev["hardware_profile"],
+        "schedules": sched_list,
+        "active_schedule_id": active_sc_id,
+        "playlist_names": pl_names,
     })
 
 
@@ -368,6 +450,7 @@ async def settings_page(request: Request, msg: str = "", error: str = ""):
         "msg": msg,
         "error": error,
         "display_rotation": config_service.config.player.display_rotation,
+        "clock_position": config_service.config.player.clock_position,
     })
 
 
@@ -435,6 +518,11 @@ async def get_status(request: Request):
         "disk": _get_disk_usage(),
         "uptime": _get_uptime(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "local_time": datetime.now().strftime("%H:%M:%S"),
+        "local_date": datetime.now().strftime("%d/%m/%Y"),
+        "timezone": _get_system_timezone(),
+        "manual_override": config_service.state.manual_override,
+        "active_schedule_id": (lambda sc: sc["id"] if sc else None)(schedule_service.get_active_schedule()),
     })
 
 
@@ -673,6 +761,19 @@ async def api_stop(request: Request):
     return JSONResponse({"ok": True, **player_service.status()})
 
 
+@app.post("/api/player/resume-schedule")
+async def api_resume_schedule(request: Request):
+    """Limpa manual_override e força verificação imediata da agenda."""
+    err = require_auth_json(request)
+    if err:
+        return err
+    config_service.save_state(manual_override=False)
+    import asyncio as _aio
+    loop = _aio.get_event_loop()
+    loop.run_in_executor(None, _check_schedule)
+    return JSONResponse({"ok": True, "manual_override": False})
+
+
 @app.post("/api/player/restart")
 async def api_restart(request: Request):
     err = require_auth_json(request)
@@ -720,6 +821,15 @@ async def api_player_previous(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+async def _bg_display_restart(playing: bool, current_file: str | None) -> None:
+    """Reinicia exibição em background após mudança de rotação ou posição."""
+    loop = asyncio.get_event_loop()
+    if playing and current_file:
+        await loop.run_in_executor(None, lambda: player_service.play(current_file))
+    else:
+        await loop.run_in_executor(None, display_service.show_status_from_config)
+
+
 @app.post("/api/player/rotation")
 async def api_rotation(request: Request):
     err = require_auth_json(request)
@@ -730,19 +840,48 @@ async def api_rotation(request: Request):
     if rotation not in ("normal", "left", "right"):
         return JSONResponse({"error": "Valor inválido. Use: normal, left, right"}, status_code=400)
 
+    user = config_service._user
+    current_player = user.player if user.player is not None else config_service._defaults.player
+    user.player = current_player.model_copy(update={"display_rotation": rotation})
+    config_service.save_user_config(user)
+
+    # play_standby regenera a imagem de status para a nova orientação;
+    # run_in_executor aguarda sem bloquear o event loop.
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, player_service.play_standby)
+    except Exception as e:
+        logger.warning("Falha ao atualizar display apos rotacao: %s", e)
+
+    return JSONResponse({"ok": True, "rotation": rotation})
+
+
+@app.post("/api/player/clock-position")
+async def api_clock_position(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+
+    body = await request.json()
+    pos = body.get("position", "top-right")
+    from app.models import CLOCK_POSITIONS
+    if pos not in CLOCK_POSITIONS:
+        return JSONResponse(
+            {"error": f"Posição inválida. Use: {', '.join(CLOCK_POSITIONS)}"},
+            status_code=400,
+        )
+
     from app.models import PlayerConfig
     user = config_service._user
     current_player = user.player if user.player is not None else config_service._defaults.player
-    updated_player = current_player.model_copy(update={"display_rotation": rotation})
-    user.player = updated_player
+    user.player = current_player.model_copy(update={"clock_position": pos})
     config_service.save_user_config(user)
 
-    if player_service.is_playing():
-        player_service.play(player_service.status()["current_file"])
-    else:
-        display_service.show_status_from_config()
+    # Aplica imediatamente se estiver em standby (em background para não bloquear)
+    if not player_service._playing_playlist:
+        asyncio.create_task(_bg_display_restart(False, None))
 
-    return JSONResponse({"ok": True, "rotation": rotation})
+    return JSONResponse({"ok": True, "clock_position": pos})
 
 
 # ---------------------------------------------------------------------------
@@ -892,6 +1031,10 @@ async def api_set_standby(request: Request):
     if bg and not (Path("/opt/av-signage/media/local") / bg).exists():
         return JSONResponse({"error": "Arquivo não encontrado."}, status_code=400)
     config_service.save_bg_media(bg)
+    # Aplica imediatamente se o player estiver em standby
+    ps = player_service.status()
+    if not ps.get("playing_playlist"):
+        player_service.play_standby()
     return JSONResponse({"ok": True, "bg_media": bg})
 
 
@@ -1024,6 +1167,138 @@ async def api_factory(request: Request):
     return JSONResponse(result)
 
 
+@app.get("/api/system/time")
+async def api_get_time(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+
+    now = datetime.now()
+    tz = _get_system_timezone()
+    return JSONResponse({
+        "datetime": now.isoformat(),
+        "time": now.strftime("%H:%M:%S"),
+        "date": now.strftime("%d/%m/%Y"),
+        "weekday": now.strftime("%A"),
+        "timezone": tz,
+    })
+
+
+_SUDO_SETUP_CMD = (
+    'echo "admin ALL=(ALL) NOPASSWD: /usr/bin/timedatectl set-timezone *,'
+    ' /usr/bin/timedatectl set-ntp *, /usr/bin/timedatectl set-time *,'
+    ' /usr/bin/systemctl restart systemd-timesyncd,'
+    ' /usr/bin/systemctl stop systemd-timesyncd,'
+    ' /usr/bin/systemctl start systemd-timesyncd"'
+    ' | sudo tee /etc/sudoers.d/av-signage-time'
+    ' && sudo chmod 440 /etc/sudoers.d/av-signage-time'
+)
+
+
+@app.post("/api/system/time")
+async def api_set_time(request: Request):
+    err = require_auth_json(request)
+    if err:
+        return err
+
+    body = await request.json()
+    tz        = body.get("timezone", "").strip()
+    sync_ntp  = body.get("sync_ntp", False)
+    datetime_browser = body.get("datetime", "").strip()   # ISO string do navegador
+
+    import subprocess as _sp
+    from datetime import datetime as _dt
+
+    errors = []
+
+    # ── Hora manual a partir do navegador (sem internet) ─────────────────────
+    if datetime_browser:
+        try:
+            # Aceita "YYYY-MM-DD HH:MM:SS" (hora local) ou ISO UTC
+            if "T" in datetime_browser or "Z" in datetime_browser:
+                # ISO UTC → converte para hora local do sistema
+                dt_utc   = _dt.fromisoformat(datetime_browser.replace("Z", "+00:00"))
+                import time as _time_mod
+                local_dt = _dt.fromtimestamp(dt_utc.timestamp())  # usa TZ local
+                time_str = local_dt.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # Já é hora local formatada
+                time_str = datetime_browser.strip()
+
+            # 1. Parar serviço NTP para não sobrescrever a hora manual
+            _sp.run(["sudo", "-n", "timedatectl", "set-ntp", "false"],
+                    capture_output=True, timeout=5)
+            _sp.run(["sudo", "-n", "systemctl", "stop", "systemd-timesyncd"],
+                    capture_output=True, timeout=5)
+
+            # 2. Definir hora
+            r = _sp.run(
+                ["sudo", "-n", "timedatectl", "set-time", time_str],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                stderr = r.stderr.strip()
+                if "password" in stderr.lower() or "terminal" in stderr.lower():
+                    return JSONResponse({
+                        "error": "Permissão sudo ausente.",
+                        "sudo_setup_required": True,
+                        "setup_command": _SUDO_SETUP_CMD,
+                    }, status_code=403)
+                errors.append(stderr or "Erro ao definir hora manual.")
+        except Exception as e:
+            errors.append(f"Falha ao definir hora: {e}")
+
+    if tz:
+        try:
+            r = _sp.run(
+                ["sudo", "-n", "timedatectl", "set-timezone", tz],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                stderr = r.stderr.strip()
+                if "password" in stderr.lower() or "terminal" in stderr.lower():
+                    return JSONResponse({
+                        "error": "Permissão sudo ausente.",
+                        "sudo_setup_required": True,
+                        "setup_command": _SUDO_SETUP_CMD,
+                    }, status_code=403)
+                errors.append(stderr or f"Erro ao definir timezone: {tz}")
+        except Exception as e:
+            errors.append(f"Falha ao definir timezone: {e}")
+
+    if sync_ntp:
+        try:
+            r = _sp.run(
+                ["sudo", "-n", "timedatectl", "set-ntp", "true"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                _sp.run(["sudo", "-n", "systemctl", "restart", "systemd-timesyncd"],
+                        capture_output=True, timeout=10)
+            elif "password" in r.stderr.lower() or "terminal" in r.stderr.lower():
+                return JSONResponse({
+                    "error": "Permissão sudo ausente.",
+                    "sudo_setup_required": True,
+                    "setup_command": _SUDO_SETUP_CMD,
+                }, status_code=403)
+        except Exception as e:
+            errors.append(f"Falha ao sincronizar NTP: {e}")
+
+    if errors:
+        return JSONResponse({"error": "; ".join(errors)}, status_code=500)
+
+    # Notifica a libc/Python para recarregar o timezone imediatamente
+    # Sem isso, datetime.now() continua usando o timezone antigo até reiniciar
+    import time as _time
+    _time.tzset()
+
+    return JSONResponse({
+        "ok": True,
+        "timezone": _get_system_timezone(),
+        "datetime": datetime.now().isoformat(),
+    })
+
+
 @app.get("/health")
 async def health():
     return JSONResponse({"status": "ok", "version": "0.2.0"})
@@ -1032,6 +1307,39 @@ async def health():
 # ---------------------------------------------------------------------------
 # Helpers (local ao main — diagnóstico)
 # ---------------------------------------------------------------------------
+
+def _get_system_timezone() -> str:
+    """Lê o timezone atual do sistema de forma confiável (múltiplas fontes).
+    Prioridade: symlink /etc/localtime > timedatectl > /etc/timezone
+    O symlink é sempre atualizado pelo timedatectl, enquanto /etc/timezone
+    pode ficar desatualizado em algumas configurações Debian/Raspberry Pi OS.
+    """
+    # 1. Symlink /etc/localtime → .../zoneinfo/Region/City (mais confiável)
+    try:
+        import os as _os
+        lt = _os.readlink("/etc/localtime")
+        if "zoneinfo/" in lt:
+            return lt.split("zoneinfo/")[-1]
+    except Exception:
+        pass
+    # 2. timedatectl show
+    try:
+        import subprocess as _sp
+        r = _sp.run(["timedatectl", "show", "--property=Timezone", "--value"],
+                    capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    # 3. /etc/timezone (pode estar desatualizado)
+    try:
+        tz = Path("/etc/timezone").read_text().strip()
+        if tz:
+            return tz
+    except Exception:
+        pass
+    return "UTC"
+
 
 def _get_uptime() -> str:
     try:
