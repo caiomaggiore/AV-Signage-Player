@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}AV Signage Player{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=8">
   <!-- Aplica tema ANTES do render para evitar flash -->
   <script>
     (function () {
@@ -15,41 +15,46 @@
 </head>
 <body>
   {% block nav %}
-  <nav>
-    <span class="nav-brand">AV Signage Player</span>
-    <div class="nav-links">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/media">Mídias</a>
-      <a href="/playlists">Playlists</a>
-      <a href="/schedule">Agenda</a>
-      <a href="/network">Rede</a>
-      <a href="/settings">Sistema</a>
-      <form action="/logout" method="post" style="display:inline">
-        <button type="submit" class="btn-link" style="padding:5px 11px;border-radius:6px;color:rgba(221,226,240,.70);font-size:14px;font-weight:500;transition:background .15s,color .15s">Sair</button>
-      </form>
-      <!-- Toggle Tema: ícones SVG inline p/ consistência entre fontes -->
-      <button id="btn-theme-toggle" type="button" title="Alternar tema claro/escuro">
-        <!-- Ícone sol (dark→light) -->
-        <svg id="icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-          <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-        </svg>
-        <!-- Ícone lua (light→dark) -->
-        <svg id="icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-             style="display:none">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
+  <nav class="site-nav" aria-label="Navegação principal">
+    <div class="site-nav-inner">
+      <span class="nav-brand">AV Signage Player</span>
+      <button type="button" class="nav-burger" id="nav-menu-toggle"
+              aria-controls="nav-collapsible-menu" aria-expanded="false"
+              aria-label="Abrir menu de navegação">
+        <span class="nav-burger-lines" aria-hidden="true"></span>
       </button>
-      <!-- Indicador de conexão -->
-      <span id="conn-dot" title="Verificando conexão…"
-            style="display:inline-block;width:8px;height:8px;border-radius:50%;
-                   background:#6b7280;margin-left:6px;vertical-align:middle;
-                   transition:background .4s"></span>
+      <div class="nav-collapsible" id="nav-collapsible-menu">
+        <div class="nav-primary-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/media">Mídias</a>
+          <a href="/playlists">Playlists</a>
+          <a href="/schedule">Agenda</a>
+          <a href="/network">Rede</a>
+          <a href="/settings">Sistema</a>
+        </div>
+        <div class="nav-util">
+          <form action="/logout" method="post" class="nav-logout-form">
+            <button type="submit" class="btn-link nav-logout-btn">Sair</button>
+          </form>
+          <!-- Toggle tema -->
+          <button id="btn-theme-toggle" type="button" title="Alternar tema claro/escuro">
+            <svg id="icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg id="icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 style="display:none">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <span id="conn-dot" class="nav-conn-dot" title="Verificando conexão…"></span>
+        </div>
+      </div>
     </div>
   </nav>
   {% endblock %}
@@ -63,11 +68,52 @@
   /* ── Marca link de nav ativo ── */
   (function () {
     var path = window.location.pathname.replace(/\/$/, '') || '/';
-    document.querySelectorAll('.nav-links a').forEach(function (a) {
+    document.querySelectorAll('.nav-primary-links a').forEach(function (a) {
       var href = a.getAttribute('href').replace(/\/$/, '') || '/';
       if (path === href || (href !== '/' && path.startsWith(href))) {
         a.classList.add('nav-active');
       }
+    });
+  })();
+
+  /* ── Menu hambúrguer (mobile) ── */
+  (function () {
+    var btn = document.getElementById('nav-menu-toggle');
+    var panel = document.getElementById('nav-collapsible-menu');
+    if (!btn || !panel) return;
+
+    function closeMenu() {
+      panel.classList.remove('is-open');
+      btn.classList.remove('is-open');
+      btn.setAttribute('aria-expanded', 'false');
+      document.documentElement.classList.remove('nav-mobile-open');
+    }
+
+    btn.addEventListener('click', function () {
+      var open = panel.classList.toggle('is-open');
+      btn.classList.toggle('is-open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      document.documentElement.classList.toggle('nav-mobile-open', open);
+    });
+
+    panel.querySelectorAll('.nav-primary-links a').forEach(function (a) {
+      a.addEventListener('click', closeMenu);
+    });
+
+    var lo = panel.querySelector('.nav-logout-form');
+    if (lo) lo.addEventListener('submit', closeMenu);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (typeof document.querySelector === 'function' && document.querySelector('.modal-backdrop.is-open')) return;
+      if (panel.classList.contains('is-open')) {
+        closeMenu();
+        btn.focus();
+      }
+    });
+
+    window.addEventListener('resize', function () {
+      if (window.innerWidth > 768) closeMenu();
     });
   })();
 

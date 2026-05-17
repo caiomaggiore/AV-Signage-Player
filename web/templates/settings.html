@@ -59,7 +59,7 @@
   </div>
 
   <!-- Grade interna 50/50: Fuso | Relógio no display -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+  <div class="grid-2 gap-loose">
 
     <!-- Coluna esquerda: Fuso horário -->
     <div>
@@ -95,7 +95,7 @@
           <button class="btn btn-primary" onclick="saveDatetime()">Aplicar</button>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      <div class="grid-mini">
         <button class="btn btn-secondary btn-full" onclick="syncNTP()">Sincronizar NTP</button>
         <button class="btn btn-secondary btn-full" onclick="syncFromBrowser()" title="Usa a hora do computador conectado, sem internet">Hora deste dispositivo</button>
       </div>
@@ -144,7 +144,7 @@
 </div>
 
 <!-- ── Linha 2: Reiniciar + Orientação (50/50) ────────────────────────────── -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+<div class="grid-2">
 
   <!-- Reboot -->
   <div class="section section-form" style="margin-bottom:0">
@@ -179,7 +179,7 @@
 </div>
 
 <!-- ── Linha 3: Reset Config + Factory Reset (50/50) ─────────────────────── -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+<div class="grid-2">
 
   <!-- Reset de configuração -->
   <div class="section" style="margin-bottom:0">
@@ -208,7 +208,7 @@
 </div>
 
 <!-- ── Linha 4: Alterar Senha (50%) ────────────────────────────────────────── -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+<div class="grid-2">
 
   <div class="section section-form" style="margin-bottom:0">
     <h3>Alterar senha</h3>

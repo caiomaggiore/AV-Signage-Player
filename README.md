@@ -39,7 +39,7 @@ IP: 192.168.1.100          HOSTNAME: signage-recepcao-01.local
             CÓDIGO DE PAREAMENTO
                   482-913
 
-        v0.1.0 · signage-recepcao-01
+        v0.2.1 · signage-recepcao-01
 ```
 
 ---
@@ -80,7 +80,8 @@ signage-player/
 │   └── static/               # style.css, app.js
 │
 ├── config/
-│   └── defaults.json         # Configurações padrão de fábrica
+│   ├── defaults.json         # Configurações padrão de fábrica
+│   └── identity.example.json # Modelo de identidade (copie para identity.json na 1ª execução / dev)
 │
 ├── systemd/
 │   └── av-signage-player.service

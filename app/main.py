@@ -43,6 +43,8 @@ TEMPLATES_DIR = Path("/opt/av-signage/web/templates")
 STATIC_DIR = Path("/opt/av-signage/web/static")
 
 _schedule_task: Optional[asyncio.Task] = None
+_ap_task: Optional[asyncio.Task] = None
+_wifi_boot_task: Optional[asyncio.Task] = None
 
 # Últimos valores conhecidos para detecção de mudanças na tela de status
 _last_status_ip:      str = ""
@@ -173,12 +175,75 @@ def _check_schedule() -> None:
 
 
 # ---------------------------------------------------------------------------
+# AP Monitor — verifica conectividade a cada 30s
+# ---------------------------------------------------------------------------
+
+async def _ap_monitor_loop() -> None:
+    """Monitora conectividade e ativa/desativa hotspot AP automaticamente."""
+    _no_conn_count = 0
+    loop = asyncio.get_event_loop()
+    logger.info("AP Monitor iniciado.")
+    while True:
+        try:
+            await asyncio.sleep(30)
+            connected = await loop.run_in_executor(None, network_service.is_connected)
+            if connected:
+                _no_conn_count = 0
+                hotspot = await loop.run_in_executor(None, network_service.is_hotspot_active)
+                if hotspot:
+                    logger.info("AP Monitor: conexão restaurada — desativando hotspot.")
+                    await loop.run_in_executor(None, network_service.disable_hotspot)
+                    await loop.run_in_executor(None, player_service.play_standby)
+            else:
+                _no_conn_count += 1
+                logger.debug("AP Monitor: sem conexão (contagem=%d).", _no_conn_count)
+                hotspot = await loop.run_in_executor(None, network_service.is_hotspot_active)
+                if _no_conn_count >= 2 and not hotspot:
+                    hostname = config_service.config.hostname
+                    ssid = network_service.get_ap_ssid(hostname)
+                    logger.info("AP Monitor: pré-varredura Wi‑Fi antes do modo AP...")
+                    await loop.run_in_executor(None, network_service.prefetch_wifi_survey_before_hotspot)
+                    logger.info("AP Monitor: ativando hotspot AP — SSID=%s", ssid)
+                    ok, _ = await loop.run_in_executor(None, network_service.enable_hotspot, ssid)
+                    if ok:
+                        await loop.run_in_executor(None, display_service.show_ap_screen, ssid)
+        except asyncio.CancelledError:
+            logger.info("AP Monitor encerrado.")
+            break
+        except Exception as e:
+            logger.error("AP Monitor erro: %s", e)
+
+
+async def _wifi_boot_queue_loop() -> None:
+    """Aplica `wifi_boot_association.json` quando wlan já não está só em modo AP."""
+    loop = asyncio.get_event_loop()
+    logger.info("Wi‑Fi boot‑queue iniciado.")
+    await asyncio.sleep(12)
+    while True:
+        try:
+            code = await loop.run_in_executor(None, network_service.apply_wifi_boot_queue_once)
+            if code == "connected":
+                hotspot = await loop.run_in_executor(None, network_service.is_hotspot_active)
+                if hotspot:
+                    logger.info("Wi‑Fi da fila conectado — desativando hotspot AP.")
+                    await loop.run_in_executor(None, network_service.disable_hotspot)
+                await loop.run_in_executor(None, player_service.play_standby)
+            await asyncio.sleep(25)
+        except asyncio.CancelledError:
+            logger.info("Wi‑Fi boot‑queue encerrado.")
+            break
+        except Exception as e:
+            logger.error("Wi‑Fi boot‑queue erro: %s", e)
+            await asyncio.sleep(35)
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _schedule_task
+    global _schedule_task, _ap_task, _wifi_boot_task
     config_service.promote_pending()
     config_service.load()
     player_service.set_screen_service(display_service)
@@ -191,14 +256,20 @@ async def lifespan(app: FastAPI):
     # play_standby já é chamado por _check_schedule quando não há conteúdo agendado
 
     _schedule_task = asyncio.create_task(_schedule_runner())
-    logger.info("AV Signage Player v0.2 iniciado.")
+    _ap_task = asyncio.create_task(_ap_monitor_loop())
+    _wifi_boot_task = asyncio.create_task(_wifi_boot_queue_loop())
+    logger.info("AV Signage Player v0.2.1 iniciado.")
     yield
     if _schedule_task:
         _schedule_task.cancel()
+    if _ap_task:
+        _ap_task.cancel()
+    if _wifi_boot_task:
+        _wifi_boot_task.cancel()
     player_service.stop(show_status=False)
 
 
-app = FastAPI(title="AV Signage Player", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="AV Signage Player", version="0.2.1", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -463,6 +534,10 @@ async def network_page(request: Request, msg: str = "", error: str = ""):
     cfg = config_service.config
     net_info = network_service.get_current_network_info()
     wifi_info = network_service.get_wifi_info()
+    ap_active = network_service.is_hotspot_active()
+    conn_type = network_service.get_connection_type()
+    wifi_boot_pending = network_service.is_wifi_boot_queue_pending()
+    show_wifi_forget_main = bool(conn_type["wifi"] or ap_active or wifi_boot_pending)
 
     return templates.TemplateResponse("network.html", {
         "request": request,
@@ -478,6 +553,14 @@ async def network_page(request: Request, msg: str = "", error: str = ""):
         "dns": cfg.network.dns,
         "net_info": net_info,
         "wifi_info": wifi_info,
+        "ap_active": ap_active,
+        "ap_ssid": network_service.get_ap_ssid(cfg.hostname) if ap_active else "",
+        "connected": conn_type["ethernet"] or conn_type["wifi"],
+        "conn_ethernet": conn_type["ethernet"],
+        "conn_wifi": conn_type["wifi"],
+        "conn_wifi_ssid": conn_type["wifi_ssid"],
+        "wifi_boot_pending": wifi_boot_pending,
+        "show_wifi_forget_main": show_wifi_forget_main,
     })
 
 
@@ -560,6 +643,8 @@ async def api_get_network(request: Request):
     net_info = network_service.get_current_network_info()
     wifi_info = network_service.get_wifi_info()
     dev_net = device_service.get_device_info()["network"]
+    conn_type = network_service.get_connection_type()
+    wifi_boot = network_service.read_wifi_boot_queue_meta(exclude_secret=True) if network_service.is_wifi_boot_queue_pending() else None
 
     return JSONResponse({
         "mode": cfg.network.mode,
@@ -569,15 +654,60 @@ async def api_get_network(request: Request):
         "active_type": dev_net["active_type"],
         "current": net_info,
         "wifi": wifi_info,
+        "ap_active": conn_type["ap_mode"],
+        "ap_ssid": network_service.get_ap_ssid(cfg.hostname) if conn_type["ap_mode"] else "",
+        "connected": conn_type["ethernet"] or conn_type["wifi"],
+        "conn_ethernet": conn_type["ethernet"],
+        "conn_wifi": conn_type["wifi"],
+        "conn_wifi_ssid": conn_type["wifi_ssid"],
+        "wifi_boot_pending": network_service.is_wifi_boot_queue_pending(),
+        "wifi_boot_queue": wifi_boot,
+        "hostname": cfg.hostname,
     })
 
 
-@app.get("/api/network/wifi/scan")
-async def api_wifi_scan(request: Request):
+@app.get("/api/network/wifi/cache")
+async def api_wifi_scan_cache(request: Request):
+    """Lista de redes pré-gravadas (antes do modo AP) ou atualizada pela última varredura bem-sucedida."""
     err = require_auth_json(request)
     if err:
         return err
-    networks = network_service.scan_wifi()
+    data = network_service.read_wifi_scan_cache()
+    return JSONResponse({"networks": data["networks"], "saved_at": data.get("saved_at")})
+
+
+@app.post("/api/network/wifi/scan")
+async def api_wifi_scan_live(request: Request):
+    """Varredura ao vivo (`nmcli` + opcional pause do AP).
+    Sem Ethernet na placa em modo AP, exige confirm explícito do cliente."""
+    err = require_auth_json(request)
+    if err:
+        return err
+
+    ct = network_service.get_connection_type()
+    ap_on = ct.get("ap_mode", False)
+    eth_ok = ct.get("ethernet", False)
+
+    body = {}
+    try:
+        body = await request.json()
+        if body is None:
+            body = {}
+    except Exception:
+        body = {}
+    confirmed = body.get("user_confirmed_wifi_drop") is True
+
+    if ap_on and not eth_ok and not confirmed:
+        return JSONResponse(
+            {
+                "error": "confirmation_required",
+                "message": "Confirme no cliente que pode perder a ligação Wi‑Fi atual durante a nova varredura.",
+            },
+            status_code=400,
+        )
+
+    loop = asyncio.get_event_loop()
+    networks = await loop.run_in_executor(None, network_service.scan_wifi_live)
     return JSONResponse({"networks": networks})
 
 
@@ -594,10 +724,56 @@ async def api_wifi_connect(request: Request):
     if not ssid:
         return JSONResponse({"error": "SSID obrigatório."}, status_code=400)
 
-    ok, msg = network_service.connect_wifi(ssid, password)
+    loop = asyncio.get_event_loop()
+    conn_type = network_service.get_connection_type()
+    ap_on = conn_type.get("ap_mode", False)
+
+    # Com modo AP no mesmo rádio, nmcli não encontra SSIDs externos — gravar pedido para pós‑reboot.
+    if ap_on:
+        okq, qmsg = await loop.run_in_executor(
+            None, network_service.queue_wifi_association_for_boot, ssid, password,
+        )
+        if not okq:
+            return JSONResponse({"error": qmsg}, status_code=500)
+        return JSONResponse({
+            "ok": True,
+            "mode": "queued_for_reboot",
+            "ssid": ssid,
+            "message": (
+                "Credenciais guardadas. O serviço vai libertar brevemente o Wi‑Fi do modo AP e tentar esta rede automaticamente (várias vezes por minuto). "
+                "Se falhar, o hotspot normalmente volta. Também pode reiniciar o equipamento para forçar."
+            ),
+        })
+
+    ok, msg = await loop.run_in_executor(None, network_service.connect_wifi, ssid, password)
     if not ok:
         return JSONResponse({"error": msg}, status_code=500)
+
+    await loop.run_in_executor(None, network_service.clear_wifi_boot_queue_if_matching_ssid, ssid)
+
+    hotspot = await loop.run_in_executor(None, network_service.is_hotspot_active)
+    if hotspot:
+        logger.info("Wi‑Fi ligado (%s) — hotspot AP será desligado.", ssid)
+        await loop.run_in_executor(None, network_service.disable_hotspot)
+        await loop.run_in_executor(None, player_service.play_standby)
+
     return JSONResponse({"ok": True, "ssid": ssid})
+
+
+@app.post("/api/network/wifi/forget")
+async def api_wifi_forget(request: Request):
+    """Remove filas/cache Wi‑Fi em disco, perfis ``av-signage-wifi-*`` e desliga STA (se não houver AP)."""
+    err = require_auth_json(request)
+    if err:
+        return err
+    loop = asyncio.get_event_loop()
+    ok, msg = await loop.run_in_executor(None, network_service.forget_saved_wifi_networks)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=500)
+    return JSONResponse({
+        "ok": True,
+        "message": "Perfis Wi‑Fi cliente, filas e cache locais foram removidos.",
+    })
 
 
 @app.post("/api/network/apply")
@@ -1301,7 +1477,7 @@ async def api_set_time(request: Request):
 
 @app.get("/health")
 async def health():
-    return JSONResponse({"status": "ok", "version": "0.2.0"})
+    return JSONResponse({"status": "ok", "version": "0.2.1"})
 
 
 # ---------------------------------------------------------------------------

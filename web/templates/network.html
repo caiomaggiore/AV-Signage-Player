@@ -17,8 +17,56 @@
 <div id="api-error" class="alert alert-error" style="display:none"></div>
 <div id="api-success" class="alert alert-success" style="display:none"></div>
 
+<!-- Conectividade + atalho Wi-Fi (mesma linha): badges à esquerda, botão compacto à direita -->
+<div class="modules-row">
+  <div class="module network-conn-module" id="conn-status-module">
+    <div class="module-head">
+      <h3>Conectividade e Wi‑Fi</h3>
+    </div>
+    <div class="module-body">
+      <div class="network-conn-strip">
+        <div id="conn-status-badges" class="network-conn-badges" aria-live="polite">
+          {% if ap_active %}
+            <span class="badge badge-info" style="font-size:13px; padding:4px 12px">● Wi‑Fi</span>
+            <span style="color:var(--text-muted); font-size:13px"><strong style="color:var(--text)">{{ ap_ssid }}</strong></span>
+            <span class="network-ap-pill">Modo AP</span>
+            <span class="network-ap-meta">Senha <strong>12345678</strong></span>
+            <span class="network-ap-subline">
+              IP <strong>10.42.0.1</strong>
+              · <a href="http://{{ hostname }}.local:8080/network">{{ hostname }}.local:8080</a>
+              · <a href="http://10.42.0.1:8080/network">10.42.0.1:8080</a>
+            </span>
+          {% else %}
+            {% if conn_ethernet %}
+              <span class="badge badge-success" style="font-size:13px; padding:4px 12px">● Ethernet</span>
+            {% endif %}
+            {% if conn_wifi %}
+              <span class="badge badge-info" style="font-size:13px; padding:4px 12px">● Wi‑Fi</span>
+              <span style="color:var(--text-muted); font-size:13px">{{ conn_wifi_ssid }}</span>
+            {% endif %}
+            {% if not conn_ethernet and not conn_wifi %}
+              <span class="badge badge-danger" style="font-size:13px; padding:4px 12px">✕ Sem conexão</span>
+              <span style="color:var(--text-muted); font-size:13px">O modo AP será ativado automaticamente em ~60s.</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm flex-shrink-zero" onclick="openWifiScanModal()">Conectar via Wi‑Fi</button>
+      </div>
+      <div id="wifi-current-status" class="text-muted" style="font-size:13px; margin-top:12px">
+        {% if conn_wifi %}
+          Conectado ao Wi‑Fi: <strong style="color:var(--text)">{{ conn_wifi_ssid }}</strong>
+        {% else %}
+          Sem conexão Wi‑Fi ativa (Ethernet ou AP podem estar ativos).
+        {% endif %}
+      </div>
+      <div id="wifi-forget-main-wrap" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:{% if show_wifi_forget_main %}block{% else %}none{% endif %}">
+        <button type="button" class="btn btn-secondary btn-sm wifi-forget-action" onclick="forgetWifiNetwork()">Esquecer esta rede</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <form id="network-form">
-  <!-- Nome do dispositivo -->
   <div class="section">
     <h3>Identificação</h3>
     <div class="form-group">
@@ -36,7 +84,6 @@
     </div>
   </div>
 
-  <!-- Modo de rede -->
   <div class="section">
     <h3>Modo de rede</h3>
     <div class="btn-group" style="margin-bottom:20px">
@@ -80,7 +127,501 @@
   </div>
 </form>
 
+<!-- Modal survey: abre com busca automática — painel opaco -->
+<div id="wifi-scan-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="wifi-scan-title" aria-hidden="true">
+  <div class="modal-panel modal-panel--wide" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="wifi-scan-title">Redes Wi‑Fi disponíveis</h3>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeWifiScanModal()">Fechar</button>
+    </div>
+    <div class="modal-actions-row">
+      <button type="button" class="btn btn-secondary btn-sm" id="wifi-refresh-btn" onclick="wifiRefreshListClicked()">
+        Atualizar lista
+      </button>
+      <span id="wifi-scan-status" class="text-muted" style="font-size:12px"></span>
+    </div>
+    <div id="wifi-ap-tip" class="wifi-scan-ap-tip" style="display:none" role="status"></div>
+    <div id="wifi-manual-row" style="margin-bottom:12px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+      <p class="text-muted" style="font-size:12px;margin-bottom:8px"><strong>Tem o nome da rede?</strong> (útil em modo AP)</p>
+      <div class="ctrl-row" style="margin-bottom:0">
+        <input type="text" id="manual-wifi-ssid" placeholder="SSID da rede Wi‑Fi" autocomplete="off" autocapitalize="none">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="manualWifiNext()">Próximo</button>
+      </div>
+    </div>
+    <div id="wifi-list-inner" class="modal-list"></div>
+    <div class="modal-forget-row" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border)">
+      <button type="button" class="btn btn-secondary btn-sm wifi-forget-action" onclick="forgetWifiNetwork()">Esquecer esta rede</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal senha -->
+<div id="wifi-connect-modal" class="modal-backdrop modal-on-top" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-panel" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 style="margin:0">Conectar ao Wi‑Fi</h3>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeConnectModal()">✕</button>
+    </div>
+    <p id="modal-ssid-label" class="text-muted" style="font-size:13px; margin-bottom:16px"></p>
+    <div class="form-group">
+      <label>Senha</label>
+      <input type="password" id="wifi-password" placeholder="Senha da rede" autocomplete="off">
+    </div>
+    <div id="wifi-connect-error" class="alert alert-error" style="display:none; font-size:13px"></div>
+    <div class="btn-group">
+      <button type="button" class="btn btn-primary" id="wifi-connect-btn" onclick="connectWifi()">Conectar</button>
+      <button type="button" class="btn btn-secondary" onclick="closeConnectModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <script>
+window.__networkPageBootstrap = {{ {
+  "conn_ethernet": conn_ethernet,
+  "ap_active": ap_active,
+  "conn_wifi": conn_wifi,
+  "wifi_boot_pending": wifi_boot_pending,
+  "hostname": hostname,
+}|tojson }};
+function badgesHtmlFromApi(d) {
+  if (d.ap_active) {
+    var qb = '';
+    if (d.wifi_boot_pending && d.wifi_boot_queue && d.wifi_boot_queue.ssid) {
+      qb = `<span style="color:var(--text-muted);font-size:12px;display:block;margin-top:10px"><strong>Ligação guardada:</strong> ${escapeHtml(d.wifi_boot_queue.ssid)} — reinicie o equipamento para aplicar antes do modo AP regressar ao rádio, ou aguarde a aplicação automática quando não houver hotspot.</span>`;
+    }
+    var host = escapeHtml(d.hostname || '');
+    var mdns = host ? 'http://' + host + '.local:8080/network' : '';
+    return `<span class="badge badge-info" style="font-size:13px;padding:4px 12px">● Wi‑Fi</span>
+      <span style="color:var(--text-muted);font-size:13px"><strong style="color:var(--text)">${escapeHtml(d.ap_ssid || '')}</strong></span>
+      <span class="network-ap-pill">Modo AP</span>
+      <span class="network-ap-meta">Senha <strong>12345678</strong></span>
+      <span class="network-ap-subline">IP <strong>10.42.0.1</strong>${host ? ' · <a href="' + mdns + '" style="color:var(--accent)">' + host + '.local:8080</a>' : ''} · <a href="http://10.42.0.1:8080/network" style="color:var(--accent)">10.42.0.1:8080</a></span>` + qb;
+  }
+  let badges = '';
+  if (d.conn_ethernet) badges += `<span class="badge badge-success" style="font-size:13px;padding:4px 12px">● Ethernet</span>`;
+  if (d.conn_wifi) {
+    badges += `<span class="badge badge-info" style="font-size:13px;padding:4px 12px">● Wi‑Fi</span>
+      <span style="color:var(--text-muted);font-size:13px">${escapeHtml(d.conn_wifi_ssid || '')}</span>`;
+  }
+  if (!d.conn_ethernet && !d.conn_wifi) {
+    badges = `<span class="badge badge-danger" style="font-size:13px;padding:4px 12px">✕ Sem conexão</span>
+      <span style="color:var(--text-muted);font-size:13px">O modo AP será ativado automaticamente em ~60s.</span>`;
+  }
+  return badges;
+}
+
+async function refreshConnStatus() {
+  try {
+    const r = await fetch('/api/network');
+    if (!r.ok) return;
+    const d = await r.json();
+    window._netApiCached = d;
+    const bad = document.getElementById('conn-status-badges');
+    if (bad) bad.innerHTML = badgesHtmlFromApi(d);
+
+    const wifiStatus = document.getElementById('wifi-current-status');
+    if (wifiStatus) {
+      wifiStatus.innerHTML = d.conn_wifi
+        ? `Conectado ao Wi‑Fi: <strong style="color:var(--text)">${escapeHtml(d.conn_wifi_ssid)}</strong>`
+        : 'Sem conexão Wi‑Fi ativa (Ethernet ou AP podem estar ativos).';
+    }
+    updateWifiScanApUi();
+    updateWifiForgetMainVisibility();
+  } catch (_) {}
+}
+setInterval(refreshConnStatus, 15000);
+refreshConnStatus();
+
+function updateWifiForgetMainVisibility() {
+  var wrap = document.getElementById('wifi-forget-main-wrap');
+  if (!wrap) return;
+  var d = window._netApiCached || window.__networkPageBootstrap || {};
+  var show = !!(d.conn_wifi || d.ap_active || d.wifi_boot_pending);
+  wrap.style.display = show ? 'block' : 'none';
+}
+
+function updateWifiScanApUi() {
+  var tip = document.getElementById('wifi-ap-tip');
+  var d = window._netApiCached || window.__networkPageBootstrap || {};
+  if (!tip) return;
+  if (!d.ap_active || d.conn_ethernet) {
+    tip.style.display = 'none';
+    return;
+  }
+  tip.style.display = 'block';
+  tip.innerHTML =
+    '<strong>Só aparece primeiro a lista guardada</strong> (varreduras feitas <em>antes</em> deste modo AP estar ativo ou após atualizar quando possível).<br/><br/>' +
+    '<strong>Nova lista:</strong> toque em <strong>Atualizar lista</strong>; vai surgir uma confirmação. O servidor vai interromper o hotspot durante alguns segundos; ' +
+    'se apenas acede através deste Wi‑Fi, <strong>cai esta sessão até o ponto de acesso regressar</strong> — será necessário ligar novamente ao mesmo SSID ou recarregar a página.';
+}
+
+function mergeNetBootstrapIntoCache() {
+  if (!window._netApiCached) window._netApiCached = {};
+  var b = window.__networkPageBootstrap || {};
+  if (typeof b.conn_ethernet === 'boolean') window._netApiCached.conn_ethernet = b.conn_ethernet;
+  if (typeof b.ap_active === 'boolean') window._netApiCached.ap_active = b.ap_active;
+  if (typeof b.conn_wifi === 'boolean') window._netApiCached.conn_wifi = b.conn_wifi;
+  if (typeof b.wifi_boot_pending === 'boolean') window._netApiCached.wifi_boot_pending = b.wifi_boot_pending;
+  if (typeof b.hostname === 'string' && b.hostname) window._netApiCached.hostname = b.hostname;
+}
+
+function manualWifiNext() {
+  var raw = (document.getElementById('manual-wifi-ssid') || {}).value || '';
+  var ssid = raw.trim();
+  if (!ssid) {
+    alert('Digite o nome da rede (SSID).');
+    return;
+  }
+  openConnectModal(ssid);
+}
+
+// ── Modais ────────────────────────────────────────────────────────────────────
+function openWifiScanModal() {
+  var el = document.getElementById('wifi-scan-modal');
+  el.classList.add('is-open');
+  el.setAttribute('aria-hidden', 'false');
+  document.getElementById('manual-wifi-ssid').value = '';
+  mergeNetBootstrapIntoCache();
+  updateWifiScanApUi();
+
+  var d = window._netApiCached || window.__networkPageBootstrap || {};
+  if (d.conn_ethernet) {
+    wifiLiveScanInner(false, true);
+  } else {
+    wifiLoadCachedScan(true);
+  }
+}
+
+function closeWifiScanModal() {
+  var el = document.getElementById('wifi-scan-modal');
+  el.classList.remove('is-open');
+  el.setAttribute('aria-hidden', 'true');
+}
+
+document.getElementById('wifi-scan-modal').addEventListener('click', function (ev) {
+  if (ev.target === this) closeWifiScanModal();
+});
+
+document.getElementById('wifi-connect-modal').addEventListener('click', function (ev) {
+  if (ev.target === this) closeConnectModal();
+});
+
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape') return;
+  if (document.getElementById('wifi-connect-modal').classList.contains('is-open')) {
+    closeConnectModal();
+    return;
+  }
+  if (document.getElementById('wifi-scan-modal').classList.contains('is-open')) {
+    closeWifiScanModal();
+  }
+});
+
+function wifiRefreshListClicked() {
+  mergeNetBootstrapIntoCache();
+  var d = window._netApiCached || window.__networkPageBootstrap || {};
+  if (d.ap_active && !d.conn_ethernet) {
+    if (!window.confirm(
+      'O servidor vai libertar temporariamente a antena Wi‑Fi para ler redes próximas. ' +
+      'Se só está ligado à rede Wi‑Fi deste equipamento em modo AP, a ligação a esta página cai até o ponto de acesso voltar. ' +
+      'Depois será necessário voltar a ligar ao mesmo SSID (ou atualizar se o browser recuperar só). Continuar?',
+    )) return;
+    wifiLiveScanInner(true, false);
+    return;
+  }
+  wifiLiveScanInner(false, false);
+}
+
+function populateWifiNetworksUI(networks, emptyMsg) {
+  var inner = document.getElementById('wifi-list-inner');
+  var stat = document.getElementById('wifi-scan-status');
+  inner.innerHTML = '';
+
+  if (!networks || networks.length === 0) {
+    if (stat) stat.textContent = '';
+    var p = document.createElement('p');
+    p.className = 'text-muted';
+    p.style.fontSize = '12px';
+    p.style.lineHeight = '1.45';
+    p.style.marginBottom = '0';
+    p.textContent = emptyMsg || 'Nenhuma rede na lista.';
+    inner.appendChild(p);
+    return;
+  }
+
+  networks.forEach(function (net) {
+    var row = document.createElement('div');
+    row.className = 'modal-list-row';
+
+    var left = document.createElement('div');
+    left.style.minWidth = '0';
+    left.innerHTML = '<strong style="color:var(--text-strong)">' + escapeHtml(net.ssid) + '</strong> ' +
+      '<span style="color:var(--text-muted);font-size:12px">' + escapeHtml(net.security || '') + '</span>';
+
+    var right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '10px';
+    right.style.flexShrink = '0';
+
+    var sig = document.createElement('span');
+    sig.style.display = 'inline-flex';
+    sig.style.alignItems = 'flex-end';
+    sig.style.gap = '6px';
+    sig.style.fontSize = '12px';
+    sig.style.color = 'var(--text-muted)';
+    sig.appendChild(wifiSignalMeterEl(net.signal));
+    var pctLbl = document.createElement('span');
+    pctLbl.textContent = net.signal + '%';
+    sig.appendChild(pctLbl);
+
+    var cbtn = document.createElement('button');
+    cbtn.type = 'button';
+    cbtn.className = 'btn btn-secondary btn-sm';
+    cbtn.textContent = 'Conectar';
+    cbtn.addEventListener('click', function () { openConnectModal(net.ssid); });
+
+    right.appendChild(sig);
+    right.appendChild(cbtn);
+    row.appendChild(left);
+    row.appendChild(right);
+    inner.appendChild(row);
+  });
+
+  var t = networks.length;
+  if (stat) stat.textContent = t + ' rede' + (t !== 1 ? 's' : '') + ' encontrada' + (t !== 1 ? 's' : '');
+}
+
+async function wifiLoadCachedScan(isOpening) {
+  var btn = document.getElementById('wifi-refresh-btn');
+  var inner = document.getElementById('wifi-list-inner');
+  var stat = document.getElementById('wifi-scan-status');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = isOpening ? 'A carregar lista…' : 'A carregar…';
+  }
+  if (stat) stat.textContent = '';
+  inner.innerHTML = '<span class="text-muted">A ler lista gravada antes do modo AP…</span>';
+
+  try {
+    var res = await fetch('/api/network/wifi/cache');
+    var data = await res.json().catch(function () { return {}; });
+    var nets = Array.isArray(data.networks) ? data.networks : [];
+    var apOnly = !!(window._netApiCached && window._netApiCached.ap_active && !window._netApiCached.conn_ethernet);
+    var stamp = '';
+    if (data.saved_at) stamp = '(gravada em ' + data.saved_at.slice(0, 19).replace('T', ' ') + ' UTC)';
+    var emptyTxt = apOnly
+      ? 'Lista vazia ou ainda não foi gravada. O sistema guarda redes ao detectar modo AP próximo antes de iniciar este hotspot ou após atualizar quando possível — use SSID manual acima ou “Atualizar lista” aceitando a confirmação.'
+      : 'Nenhuma rede na cache. Experimente «Atualizar lista».';
+    populateWifiNetworksUI(nets, emptyTxt);
+    if (stat && nets.length && stamp) stat.textContent = (stat.textContent || '') + ' ' + stamp;
+  } catch (_) {
+    inner.innerHTML = '';
+    inner.appendChild(makeEl('span', '', 'Erro ao ler lista gravada.', 'var(--danger)'));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Atualizar lista';
+    }
+  }
+}
+
+async function wifiLiveScanInner(userConfirmedWifiDrop, isOpening) {
+  var btn = document.getElementById('wifi-refresh-btn');
+  var inner = document.getElementById('wifi-list-inner');
+  var stat = document.getElementById('wifi-scan-status');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = isOpening ? 'Varredura em curso…' : 'Varredura em curso…';
+  }
+  if (stat) stat.textContent = '';
+  inner.innerHTML = '<span class="text-muted">A varrer redes próximas (o hotspot pode regressar dentro de poucos segundos)…</span>';
+
+  try {
+    var res = await fetch('/api/network/wifi/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_confirmed_wifi_drop: userConfirmedWifiDrop === true }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      if (data.error === 'confirmation_required') {
+        inner.innerHTML = '<span class="text-muted" style="color:var(--danger)">' +
+          (data.message || 'Confirme a nova varredura no botão.') + '</span>';
+        return;
+      }
+      inner.innerHTML = '';
+      inner.appendChild(makeEl('span', '', data.error || data.message || 'Falha na varredura.', 'var(--danger)'));
+      return;
+    }
+    var nets = Array.isArray(data.networks) ? data.networks : [];
+    populateWifiNetworksUI(nets,
+      'Nenhuma rede encontrada. SSID manual acima.');
+  } catch (_) {
+    inner.innerHTML = '';
+    inner.appendChild(makeEl('span', '', 'Erro de rede ao comunicar com o servidor.', 'var(--danger)'));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Atualizar lista';
+    }
+  }
+}
+
+
+
+function makeEl(tag, cls, txt, color) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt) e.textContent = txt;
+  if (color) e.style.color = color;
+  return e;
+}
+
+/** Barras com alturas crescentes, base comum (flex-end no .wifi-sig-meter) */
+function wifiSignalMeterEl(signalPct) {
+  var raw = typeof signalPct === 'number' && !isNaN(signalPct) ? signalPct : 0;
+  var n = raw >= 75 ? 4 : raw >= 50 ? 3 : raw >= 25 ? 2 : 1;
+  var wrap = document.createElement('span');
+  wrap.className = 'wifi-sig-meter';
+  wrap.setAttribute('aria-hidden', 'true');
+  var heightsPx = [4, 7, 10, 13];
+  for (var i = 0; i < 4; i++) {
+    var bar = document.createElement('span');
+    bar.className = 'wifi-sig-bar';
+    if (i >= n) bar.classList.add('wifi-sig-bar--inactive');
+    bar.style.height = (i < n ? heightsPx[i] : 3) + 'px';
+    wrap.appendChild(bar);
+  }
+  return wrap;
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Conectar ─────────────────────────────────────────────────────────────────
+var _selectedSsid = '';
+
+function openConnectModal(ssid) {
+  _selectedSsid = ssid;
+  document.getElementById('modal-ssid-label').textContent = 'Rede: ' + ssid;
+  document.getElementById('wifi-password').value = '';
+  document.getElementById('wifi-connect-error').style.display = 'none';
+
+  var m = document.getElementById('wifi-connect-modal');
+  m.classList.add('is-open');
+  m.setAttribute('aria-hidden', 'false');
+  setTimeout(function () { document.getElementById('wifi-password').focus(); }, 50);
+}
+
+function closeConnectModal() {
+  var m = document.getElementById('wifi-connect-modal');
+  m.classList.remove('is-open');
+  m.setAttribute('aria-hidden', 'true');
+  _selectedSsid = '';
+}
+
+document.getElementById('wifi-password').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') connectWifi();
+});
+
+async function connectWifi() {
+  var btn = document.getElementById('wifi-connect-btn');
+  var errDiv = document.getElementById('wifi-connect-error');
+  var pwd = document.getElementById('wifi-password').value;
+  errDiv.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Conectando...';
+  try {
+    var r = await fetch('/api/network/wifi/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ssid: _selectedSsid, password: pwd }),
+    });
+    var data = await r.json();
+    if (data.ok) {
+      closeConnectModal();
+      closeWifiScanModal();
+      var ok = document.getElementById('api-success');
+      if (data.mode === 'queued_for_reboot') {
+        ok.textContent = data.message || ('Rede guardada para ligar depois do reinício: ' + (data.ssid || _selectedSsid) + '.');
+        ok.style.display = 'block';
+        refreshConnStatus();
+        if (window.confirm(
+          'Credenciais guardadas neste equipamento.\n'
+          + 'Precisa reiniciar para libertar o Wi‑Fi do modo AP e aplicar esta rede.\n\n'
+          + 'Deseja reiniciar AGORA?',
+        )) {
+          fetch('/api/system/reboot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+          }).catch(function () {});
+        }
+      } else {
+        ok.textContent = 'Conectado a ' + data.ssid + '!';
+        ok.style.display = 'block';
+      }
+      setTimeout(refreshConnStatus, data.mode === 'queued_for_reboot' ? 500 : 2500);
+    } else {
+      errDiv.textContent = data.error || 'Falha ao conectar.';
+      errDiv.style.display = 'block';
+    }
+  } catch (_) {
+    errDiv.textContent = 'Erro de conexão com o servidor.';
+    errDiv.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Conectar';
+  }
+}
+
+async function forgetWifiNetwork() {
+  if (!window.confirm(
+    'Esquecer redes Wi‑Fi guardadas e desligar o cliente, se existir? O modo AP (hotspot) não é desligado se estiver ativo.',
+  )) return;
+  var buttons = document.querySelectorAll('.wifi-forget-action');
+  var errDiv = document.getElementById('api-error');
+  var okDiv = document.getElementById('api-success');
+  if (errDiv) errDiv.style.display = 'none';
+  if (okDiv) okDiv.style.display = 'none';
+  buttons.forEach(function (b) {
+    b.disabled = true;
+    b.textContent = 'A remover…';
+  });
+  try {
+    var r = await fetch('/api/network/wifi/forget', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    });
+    var data = await r.json().catch(function () { return {}; });
+    if (r.ok && data.ok) {
+      if (okDiv) {
+        okDiv.textContent = data.message || 'Rede Wi‑Fi cliente esquecida.';
+        okDiv.style.display = 'block';
+      }
+      refreshConnStatus();
+    } else {
+      if (errDiv) {
+        errDiv.textContent = data.error || 'Não foi possível remover a rede.';
+        errDiv.style.display = 'block';
+      }
+    }
+  } catch (_) {
+    if (errDiv) {
+      errDiv.textContent = 'Erro ao contactar o servidor.';
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    document.querySelectorAll('.wifi-forget-action').forEach(function (b) {
+      b.disabled = false;
+      b.textContent = 'Esquecer esta rede';
+    });
+  }
+}
+
 function setMode(mode) {
   document.getElementById('net-mode').value = mode;
   document.getElementById('static-fields').style.display = mode === 'static' ? 'block' : 'none';
@@ -89,33 +630,29 @@ function setMode(mode) {
 }
 
 function updateHostnamePreview() {
-  const val = document.getElementById('device_name').value.trim();
-  const slug = val
-    .toLowerCase()
+  var val = document.getElementById('device_name').value.trim();
+  var slug = val.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  const hostname = slug ? `signage-${slug}` : 'signage-maggiore';
-  document.getElementById('hostname-preview-val').textContent = `http://${hostname}.local`;
+    .replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  document.getElementById('hostname-preview-val').textContent =
+    'http://' + (slug ? 'signage-' + slug : 'signage-maggiore') + '.local';
 }
 
-document.getElementById('network-form').addEventListener('submit', async function(e) {
+document.getElementById('network-form').addEventListener('submit', async function (e) {
   e.preventDefault();
-  const form = e.target;
-  const btn = document.getElementById('save-btn');
-  const errDiv = document.getElementById('api-error');
-  const okDiv = document.getElementById('api-success');
+  var form = e.target;
+  var btn = document.getElementById('save-btn');
+  var errDiv = document.getElementById('api-error');
+  var okDiv = document.getElementById('api-success');
   errDiv.style.display = 'none';
   okDiv.style.display = 'none';
 
-  const mode = document.getElementById('net-mode').value;
-  const payload = {
-    mode,
+  var mode = document.getElementById('net-mode').value;
+  var payload = {
+    mode: mode,
     display_name: form.display_name.value.trim(),
     device_name: form.device_name.value.trim(),
   };
-
   if (mode === 'static') {
     payload.ip = form.ip.value.trim();
     payload.mask = form.mask.value.trim();
@@ -125,27 +662,24 @@ document.getElementById('network-form').addEventListener('submit', async functio
 
   btn.disabled = true;
   btn.textContent = 'Aplicando...';
-
   try {
-    const r = await fetch('/api/network/apply', {
+    var r = await fetch('/api/network/apply', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
     });
-    const data = await r.json();
+    var data = await r.json();
     if (data.ok) {
-      okDiv.textContent = `Configuração aplicada! Reiniciando... Reconnecte por http://${data.hostname}.local:8080 após ~30s.`;
+      okDiv.textContent = 'Configuração aplicada! Reiniciando... Reconnecte por http://' + data.hostname + '.local:8080 após ~30s.';
       okDiv.style.display = 'block';
-      btn.disabled = true;
       btn.textContent = 'Reiniciando...';
-      // Não reabilita o botão — o dispositivo vai reiniciar
     } else {
       errDiv.textContent = data.error || 'Erro ao aplicar configuração.';
       errDiv.style.display = 'block';
       btn.disabled = false;
       btn.textContent = 'Salvar e aplicar';
     }
-  } catch {
+  } catch (_) {
     errDiv.textContent = 'Erro de conexão.';
     errDiv.style.display = 'block';
     btn.disabled = false;

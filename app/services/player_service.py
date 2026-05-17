@@ -17,7 +17,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ROTATION_DEGREES = {"normal": 0, "right": 90, "left": 270}
 PLAYLIST_FILE    = Path("/tmp/av_signage_playlist.m3u")
 CLOCK_SCRIPT     = Path("/opt/av-signage/scripts/clock_overlay.lua")
-STANDBY_FILES    = {"status_screen.png", "default_bg_landscape.png", "default_bg_portrait.png", "default_bg.png"}
+STANDBY_FILES    = {"status_screen.png", "default_bg_landscape.png", "default_bg_portrait.png", "default_bg.png", "ap_screen.png"}
 
 
 def _get_rotation() -> int:
@@ -245,6 +245,20 @@ class PlayerService:
             logger.info("Standby: %s", standby.name)
         else:
             logger.warning("play_standby: sem imagem disponível — mpv não iniciado.")
+
+    def play_image_path(self, path: Path) -> None:
+        """Exibe uma imagem a partir de um caminho absoluto (ex.: tela de AP)."""
+        self._playing_playlist = False
+        self._current_file     = ""
+        if not path.exists():
+            logger.warning("play_image_path: arquivo não encontrado: %s", path)
+            return
+        extra: list = ["--loop-file=inf", "--panscan=1.0"]
+        extra += self._clock_args()
+        extra.append(str(path))
+        self._launch(extra)
+        self._current_file = path.name
+        logger.info("Exibindo imagem: %s", path.name)
 
     def stop(self, show_status: bool = True) -> None:
         self._stop_playlist()

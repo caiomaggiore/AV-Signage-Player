@@ -109,7 +109,7 @@ class MergedConfig(BaseModel):
 class IdentityConfig(BaseModel):
     device_id: str = ""
     hardware_model: str = ""
-    software_version: str = "0.2.0"
+    software_version: str = "0.2.1"
     created_at: str = ""
 
 

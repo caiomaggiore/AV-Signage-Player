@@ -25,7 +25,7 @@ warn() { echo -e "${YELLOW}[AV]${NC} $1" | tee -a "$LOG_FILE"; }
 fail() { echo -e "${RED}[ERRO]${NC} $1" | tee -a "$LOG_FILE"; exit 1; }
 
 echo "=================================================="
-echo "  AV Signage Player v0.2 — Instalação"
+echo "  AV Signage Player v0.2.1 — Instalação"
 echo "=================================================="
 echo ""
 
@@ -73,7 +73,7 @@ sudo -u "$CURRENT_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet -r "$INSTALL
 # ── 4. Permissões sudoers ───────────────────────────────────────────────────
 log "Configurando permissões sudo..."
 cat > "$SUDOERS_FILE" << EOF
-${CURRENT_USER} ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/bin/hostnamectl, /usr/bin/nmcli, /usr/bin/tee /etc/hosts, /usr/bin/cp /tmp/etc_hosts /etc/hosts, /usr/bin/timedatectl set-timezone *, /usr/bin/timedatectl set-ntp *, /usr/bin/systemctl restart systemd-timesyncd
+${CURRENT_USER} ALL=(ALL) NOPASSWD: /sbin/reboot, /usr/bin/hostnamectl, /usr/bin/nmcli, /usr/bin/tee /etc/hosts, /usr/bin/cp /tmp/etc_hosts /etc/hosts, /usr/bin/timedatectl set-timezone *, /usr/bin/timedatectl set-ntp *, /usr/bin/systemctl restart systemd-timesyncd, /usr/bin/nmcli device wifi hotspot *, /usr/bin/nmcli connection delete av-signage-hotspot, /usr/bin/nmcli device disconnect wlan0, /usr/bin/nmcli device wifi connect *
 EOF
 chmod 440 "$SUDOERS_FILE"
 visudo -c -f "$SUDOERS_FILE" || fail "Arquivo sudoers inválido!"
@@ -143,7 +143,7 @@ systemctl start "$SERVICE_NAME" || warn "Serviço não iniciou. Verifique: journ
 
 echo ""
 echo "=================================================="
-echo -e "${GREEN}  Instalação v0.2 concluída!${NC}"
+echo -e "${GREEN}  Instalação v0.2.1 concluída!${NC}"
 echo "=================================================="
 echo ""
 echo "  Acesse: http://$(hostname).local:8080"

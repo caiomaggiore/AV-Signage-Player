@@ -64,13 +64,14 @@ def _generate_image(
         portrait = rotation in (90, 270)
         W, H = (1080, 1920) if portrait else (1920, 1080)
 
-        BG = (10, 12, 20)
-        ACCENT = (79, 124, 255)
-        TEXT = (232, 234, 240)
-        MUTED = (107, 114, 128)
-        WHITE = (255, 255, 255)
-        SEP = (45, 50, 80)
-        WARN = (245, 158, 11)
+        BG     = (10,  12,  20)
+        ACCENT = (79,  124, 255)   # azul — cor primária
+        AMBER  = (210, 145,  30)   # âmbar — destaques secundários
+        TEXT   = (232, 234, 240)
+        MUTED  = (107, 114, 128)
+        WHITE  = (255, 255, 255)
+        SEP    = (45,  50,  80)
+        WARN   = (245, 158,  11)
 
         img = Image.new("RGB", (W, H), BG)
         draw = ImageDraw.Draw(img)
@@ -112,8 +113,8 @@ def _generate_image(
                     img.paste(qr_fallback, (cx - qr_size // 2, 860))
             else:
                 draw.text((cx, 200), "AV Signage Player", font=font_title, fill=ACCENT, anchor="mm")
-                draw.text((cx, 285), display_name, font=font_label, fill=MUTED, anchor="mm")
-                draw.line([(cx - 280, 335), (cx + 280, 335)], fill=SEP, width=1)
+                draw.text((cx, 285), display_name, font=font_label, fill=AMBER, anchor="mm")
+                draw.line([(cx - 280, 335), (cx + 280, 335)], fill=AMBER, width=1)
 
                 draw.text((cx, 400), "ENDEREÇO IP", font=font_small, fill=MUTED, anchor="mm")
                 draw.text((cx, 445), ip if ip and ip != "N/A" else "Obtendo IP...", font=font_value, fill=TEXT, anchor="mm")
@@ -125,12 +126,15 @@ def _generate_image(
                 if qr_img:
                     qr_y = 670
                     img.paste(qr_img, (cx - qr_size // 2, qr_y))
-                    draw.text((cx, qr_y + qr_size + 28), "Aponte a câmera  ·  mesma rede", font=font_small, fill=MUTED, anchor="mm")
+                    txt_y1 = qr_y + qr_size + 22
+                    txt_y2 = txt_y1 + 30
+                    draw.text((cx, txt_y1), "Conecte a mesma rede", font=font_small, fill=MUTED, anchor="mm")
+                    draw.text((cx, txt_y2), "· ·  Aponte a câmera  · ·", font=font_small, fill=(75, 82, 100), anchor="mm")
 
-                code_y = 1050 if qr_img else 700
-                draw.line([(cx - 280, code_y), (cx + 280, code_y)], fill=SEP, width=1)
+                code_y = 1080 if qr_img else 700
+                draw.line([(cx - 280, code_y), (cx + 280, code_y)], fill=AMBER, width=1)
                 draw.text((cx, code_y + 60), "CÓDIGO DE PAREAMENTO", font=font_small, fill=MUTED, anchor="mm")
-                draw.text((cx, code_y + 140), pairing_code, font=font_code, fill=WHITE, anchor="mm")
+                draw.text((cx, code_y + 140), pairing_code, font=font_code, fill=AMBER, anchor="mm")
 
             draw.text((cx, H - 65), f"v{version}  ·  {hostname}", font=font_small, fill=(50, 55, 75), anchor="mm")
 
@@ -156,8 +160,8 @@ def _generate_image(
                     img.paste(qr_fallback, (W * 3 // 4 - qr_size // 2, 320))
             else:
                 draw.text((cx, 130), "AV Signage Player", font=font_title, fill=ACCENT, anchor="mm")
-                draw.text((cx, 210), display_name, font=font_label, fill=MUTED, anchor="mm")
-                draw.line([(cx - 300, 255), (cx + 300, 255)], fill=SEP, width=1)
+                draw.text((cx, 210), display_name, font=font_label, fill=AMBER, anchor="mm")
+                draw.line([(cx - 300, 255), (cx + 300, 255)], fill=AMBER, width=1)
 
                 col1_x = W // 4
                 col2_x = W * 3 // 4
@@ -175,8 +179,6 @@ def _generate_image(
 
                 # Coluna direita: QR Code centralizado verticalmente
                 if qr_img:
-                    # Área disponível: y=255 (divider) até y=780 (divider inferior)
-                    # Bloco: QR (200px) + gap + 2 linhas texto (~54px) → ~274px
                     col_top, col_bot = 255, 780
                     block_h = qr_size + 30 + 54
                     qr_y = (col_top + col_bot - block_h) // 2
@@ -187,9 +189,9 @@ def _generate_image(
                     draw.text((col2_x, txt_y1), "Conecte a mesma rede", font=font_small, fill=MUTED, anchor="mm")
                     draw.text((col2_x, txt_y2), "· ·  Aponte a câmera  · ·", font=font_small, fill=(75, 82, 100), anchor="mm")
 
-                draw.line([(cx - 300, 780), (cx + 300, 780)], fill=SEP, width=1)
+                draw.line([(cx - 300, 780), (cx + 300, 780)], fill=AMBER, width=1)
                 draw.text((cx, 835), "CÓDIGO DE PAREAMENTO", font=font_small, fill=MUTED, anchor="mm")
-                draw.text((cx, 910), pairing_code, font=font_code, fill=WHITE, anchor="mm")
+                draw.text((cx, 910), pairing_code, font=font_code, fill=AMBER, anchor="mm")
 
             draw.text((cx, H - 55), f"v{version}  ·  {hostname}", font=font_small, fill=(50, 55, 75), anchor="mm")
 
@@ -278,6 +280,137 @@ def _generate_default_bg_image(rotation: int = 0, ip: str = "", target: Optional
         return False
 
 
+AP_IMAGE = Path("/opt/av-signage/media/cache/ap_screen.png")
+
+
+def _generate_ap_image(
+    ssid: str,
+    password: str,
+    hostname: str,
+    display_name: str,
+    rotation: int = 0,
+) -> bool:
+    """Tela de modo AP: mesmo desenho-base da tela de status + bloco Wi‑Fi (AP); QR com mDNS."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        portrait = rotation in (90, 270)
+        W, H = (1080, 1920) if portrait else (1920, 1080)
+
+        BG     = (10, 12, 20)
+        ACCENT = (79, 124, 255)
+        AMBER  = (210, 145, 30)
+        TEXT   = (232, 234, 240)
+        MUTED  = (107, 114, 128)
+        WHITE  = (255, 255, 255)
+        SEP    = (45, 50, 80)
+        QR_MUTED = (75, 82, 100)
+
+        img  = Image.new("RGB", (W, H), BG)
+        draw = ImageDraw.Draw(img)
+
+        def lf(path: str, size: int) -> ImageFont.FreeTypeFont:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                return ImageFont.load_default()
+
+        cx = W // 2
+        mdns_url = f"http://{hostname}.local:8080"
+        web_url = "http://10.42.0.1:8080"
+        qr_size = 220 if portrait else 200
+        qr_img = _make_qr_image(mdns_url, size=qr_size)
+
+        if portrait:
+            font_title = lf(FONT_BOLD, 52)
+            font_label = lf(FONT_PATH, 24)
+            font_value = lf(FONT_BOLD, 32)
+            font_small = lf(FONT_PATH, 20)
+            font_url = lf(FONT_PATH, 26)
+            font_ssid = lf(FONT_BOLD, 34)
+
+            draw.text((cx, 200), "AV Signage Player", font=font_title, fill=ACCENT, anchor="mm")
+            draw.text((cx, 285), display_name or " ", font=font_label, fill=AMBER, anchor="mm")
+            draw.line([(cx - 280, 335), (cx + 280, 335)], fill=AMBER, width=1)
+
+            draw.text((cx, 365), "Wi‑Fi deste equipamento (configuração)", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((cx, 410), ssid, font=font_ssid, fill=ACCENT, anchor="mm")
+            draw.text((cx, 460), f"Senha:  {password}", font=font_value, fill=TEXT, anchor="mm")
+
+            draw.text((cx, 520), "ENDEREÇO IP", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((cx, 565), "10.42.0.1", font=font_value, fill=TEXT, anchor="mm")
+
+            draw.text((cx, 630), "ACESSE PELO NAVEGADOR", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((cx, 675), mdns_url, font=font_url, fill=ACCENT, anchor="mm")
+            draw.text((cx, 720), web_url, font=font_small, fill=MUTED, anchor="mm")
+
+            if qr_img:
+                qr_y = 755
+                img.paste(qr_img, (cx - qr_size // 2, qr_y))
+                txt_y1 = qr_y + qr_size + 22
+                txt_y2 = txt_y1 + 30
+                draw.text((cx, txt_y1), "Conecte a mesma rede", font=font_small, fill=MUTED, anchor="mm")
+                draw.text((cx, txt_y2), "· ·  Aponte a câmera  · ·", font=font_small, fill=QR_MUTED, anchor="mm")
+
+            draw.text((cx, H - 65), f"{hostname}.local  ·  Modo AP", font=font_small, fill=(50, 55, 75), anchor="mm")
+
+        else:
+            font_title = lf(FONT_BOLD, 56)
+            font_label = lf(FONT_PATH, 26)
+            font_value = lf(FONT_BOLD, 32)
+            font_small = lf(FONT_PATH, 22)
+            font_url = lf(FONT_PATH, 28)
+            font_ssid = lf(FONT_BOLD, 40)
+
+            col1_x = W // 4
+            col2_x = W * 3 // 4
+
+            draw.text((cx, 130), "AV Signage Player", font=font_title, fill=ACCENT, anchor="mm")
+            draw.text((cx, 210), display_name or " ", font=font_label, fill=AMBER, anchor="mm")
+            draw.line([(cx - 300, 255), (cx + 300, 255)], fill=AMBER, width=1)
+
+            draw.text((col1_x, 285), "Wi‑Fi (configuração)", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((col1_x, 325), ssid, font=font_ssid, fill=ACCENT, anchor="mm")
+            draw.text((col1_x, 375), f"Senha:  {password}", font=font_value, fill=TEXT, anchor="mm")
+
+            draw.line([(col1_x - 250, 418), (col1_x + 250, 418)], fill=SEP, width=1)
+
+            draw.text((col1_x, 445), "ENDEREÇO IP", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((col1_x, 485), "10.42.0.1", font=font_value, fill=TEXT, anchor="mm")
+            draw.text((col1_x, 535), "HOSTNAME", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((col1_x, 575), f"{hostname}.local", font=font_value, fill=TEXT, anchor="mm")
+            draw.text((col1_x, 625), "NAVEGADOR", font=font_small, fill=MUTED, anchor="mm")
+            draw.text((col1_x, 665), mdns_url, font=font_url, fill=ACCENT, anchor="mm")
+            draw.text((col1_x, 705), web_url, font=font_small, fill=MUTED, anchor="mm")
+
+            draw.line([(cx - 10, 265), (cx - 10, 750)], fill=SEP, width=1)
+
+            if qr_img:
+                col_top, col_bot = 255, 750
+                block_h = qr_size + 22 + 30 + 54
+                qr_y = (col_top + col_bot - block_h) // 2
+                qr_x = col2_x - qr_size // 2
+                img.paste(qr_img, (qr_x, qr_y))
+                txt_y1 = qr_y + qr_size + 22
+                txt_y2 = txt_y1 + 30
+                draw.text((col2_x, txt_y1), "Conecte a mesma rede", font=font_small, fill=MUTED, anchor="mm")
+                draw.text((col2_x, txt_y2), "· ·  Aponte a câmera  · ·", font=font_small, fill=QR_MUTED, anchor="mm")
+
+            draw.text((cx, H - 55), f"{hostname}.local  ·  Modo AP", font=font_small, fill=(50, 55, 75), anchor="mm")
+
+        AP_IMAGE.parent.mkdir(parents=True, exist_ok=True)
+        img.save(str(AP_IMAGE))
+        logger.info("Tela AP gerada: %dx%d ssid=%s rotation=%d°", W, H, ssid, rotation)
+        return True
+
+    except ImportError:
+        logger.warning("Pillow não instalado — tela AP indisponível.")
+        return False
+    except Exception as e:
+        logger.error("Erro ao gerar tela AP: %s", e)
+        return False
+
+
 class DisplayService:
     def __init__(self) -> None:
         self._process: Optional[subprocess.Popen] = None
@@ -318,7 +451,7 @@ class DisplayService:
         hostname: str,
         ip: str,
         pairing_code: str,
-        version: str = "0.2.0",
+        version: str = "0.2.1",
         fallback_mode: bool = False,
     ) -> None:
         self._kill()
@@ -381,6 +514,30 @@ class DisplayService:
             player_service.play_standby()
         except Exception as e:
             logger.error("Erro ao exibir status automático: %s", e)
+
+    def show_ap_screen(self, ssid: str) -> None:
+        """Gera e exibe a tela de modo AP no display via player_service."""
+        try:
+            from app.services.config_service import config_service
+            from app.services.network_service import AP_PASSWORD
+            from app.services.player_service import player_service
+
+            cfg = config_service.config
+            rotation = _get_rotation()
+            if _generate_ap_image(
+                ssid=ssid,
+                password=AP_PASSWORD,
+                hostname=cfg.hostname,
+                display_name=cfg.display_name,
+                rotation=rotation,
+            ):
+                player_service.play_image_path(AP_IMAGE)
+                logger.info("Tela de modo AP exibida (ssid=%s).", ssid)
+            else:
+                logger.warning("Não foi possível gerar tela AP — usando standby.")
+                player_service.play_standby()
+        except Exception as e:
+            logger.error("Erro ao exibir tela AP: %s", e)
 
     def hide(self) -> None:
         """Mata processo mpv próprio (se houver). Na nova arquitetura é no-op."""
