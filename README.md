@@ -1,222 +1,180 @@
 # AV Signage Player
 
-Player de digital signage local para **Raspberry Pi 5**, desenvolvido para substituir o sistema X2O descontinuado. Funciona de forma autônoma — sem depender de servidor central — e está preparado para futura integração com um servidor de controle centralizado.
+**Versão atual: v0.2.1**
 
-![Status](https://img.shields.io/badge/Fase%201-Completa-brightgreen)
+Player de digital signage **autônomo** (conteúdo local, sem streaming contínuo), desenvolvido para substituir o sistema X2O descontinuado. O **dispositivo oficial alvo** é o **Android em hardware Scala com SoC RK3399**; a implementação em **Raspberry Pi 5 + Linux** é o **protótipo de referência** para validar fluxo, API e UX antes da migração da stack para Android.
+
+![Release](https://img.shields.io/badge/release-v0.2.1-blue)
+![Status](https://img.shields.io/badge/Fase%201-Pi%20protótipo%20validado-green)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)
-![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-5-c51a4a)
+![Plataforma](https://img.shields.io/badge/Raspberry%20Pi-5%20(linux)-c51a4a)
+![Roadmap](https://img.shields.io/badge/Alvo%20oficial-Android%20RK3399%20(Scala)-3DDC84)
+
+Documentação completa de arquitetura e plano Android: **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
 ---
 
-## Funcionalidades
+## Escopo da v0.2.1 (protótipo Linux / Pi)
 
-- **Interface web local** autenticada, acessível por IP ou por `signage-xxx.local`
-- **Upload e gerenciamento de vídeos** (.mp4, .mov, .mkv)
-- **Player fullscreen** via mpv com controles de play, stop, loop e restart
-- **Tela de status HDMI** exibida automaticamente quando não há vídeo tocando
-- **Configuração de rede** — DHCP ou IP fixo, com validação completa
-- **Renomear dispositivo** com atualização de hostname e mDNS
-- **Reset de configuração** mantendo mídias locais
-- **Factory reset** apagando configuração e mídias
-- **Reboot** pelo painel web
-- **Boot autônomo** via serviço systemd
-- **Preparado para pareamento** com servidor central (Fase 2)
+- **Interface web** autenticada (Jinja2 + CSS único), acesso por IP ou **mDNS** (`signage-xxx.local:8080`).
+- **Mídias**: upload, listagem, remoção; suporte no player conforme codecs do mpv.
+- **Playlists** com loop, **stinger** (vinheta), itens ordenados.
+- **Agenda** (agendamentos por horário) com **playlist padrão** quando não há janela ativa; runner no backend.
+- **Player** mpv fullscreen: play/stop/restart/loop, faixa anterior/próxima, **rotação HDMI** e **overlay de relógio** (Lua), standby com tela de status / fundo personalizado.
+- **Rede**: DHCP ou IP fixo; **Wi‑Fi** (NetworkManager): varredura, ligação, **modo AP** (hotspot) para configuração sem Ethernet, fila **pós‑reboot**, esquecer redes salvas.
+- **Tela HDMI**: status com IP, mDNS, QR e pareamento; **tela dedicada modo AP** alinhada ao estilo da tela de status.
+- **Sistema**: reboot, reset (mantém mídias), factory reset, **data/hora** (NTP / painel quando aplicável).
+- **Identidade**: `identity.json` (gitignored); no repositório existe [`config/identity.example.json`](config/identity.example.json) com versão manifestada.
 
----
-
-## Tela de status HDMI
-
-Quando nenhum vídeo está sendo reproduzido, o monitor exibe automaticamente:
-
-```
-AV Signage Player
-
-IP: 192.168.1.100          HOSTNAME: signage-recepcao-01.local
-
-        Acesse: http://signage-recepcao-01.local:8080
-
-            CÓDIGO DE PAREAMENTO
-                  482-913
-
-        v0.2.1 · signage-recepcao-01
-```
+Servidor central (Fase 2) ainda não faz parte deste repositório; o player expõe **código de pareamento** e contratos pensados para evolução.
 
 ---
 
-## Stack técnica
+## Tela de status HDMI (resumo)
 
-| Componente | Tecnologia |
-|------------|------------|
-| Sistema | Raspberry Pi OS Lite 64-bit |
-| Linguagem | Python 3.11+ |
+Quando não há vídeo ou em standby, o monitor pode exibir layout com IP, hostname **.local**, URL de acesso, **QR** (mDNS) e **código de pareamento** — ver geração em `app/services/display_service.py`.
+
+---
+
+## Stack técnica (protótipo Raspberry Pi 5)
+
+| Camada | Tecnologia |
+|--------|------------|
+| SO | Raspberry Pi OS Lite 64-bit |
+| Runtime | Python 3.11+ |
 | Web / API | FastAPI + Jinja2 |
-| Configuração | JSON + Pydantic |
-| Player de vídeo | mpv |
-| Tela de status | Pillow + mpv |
-| Rede | NetworkManager / nmcli |
-| mDNS | Avahi |
-| Inicialização | systemd |
+| Modelos / config | Pydantic + JSON em `/opt/av-signage/config/` |
+| Vídeo | mpv (+ script Lua overlay de relógio) |
+| Telas HDMI | Pillow (PNG gerados) + mpv |
+| Rede | NetworkManager / `nmcli` |
+| Descoberta | Avahi (mDNS) |
+| Serviço | systemd (`av-signage-player.service`) |
 
 ---
 
-## Estrutura do projeto
+## Estrutura do projeto (resumo)
 
 ```
 signage-player/
 ├── app/
-│   ├── main.py               # FastAPI — rotas web e API
-│   ├── models.py             # Modelos Pydantic
-│   ├── config_service.py     # Gerenciamento de configuração
-│   ├── auth_service.py       # Autenticação e sessão
-│   ├── media_service.py      # Upload e listagem de mídias
-│   ├── player_service.py     # Controle do mpv
-│   ├── network_service.py    # Validação e aplicação de rede
-│   ├── reset_service.py      # Reset e factory reset
-│   └── screen_service.py     # Tela de status HDMI
-│
+│   ├── main.py                 # FastAPI, rotas web e API
+│   ├── models.py               # Pydantic
+│   └── services/
+│       ├── auth_service.py
+│       ├── config_service.py
+│       ├── device_service.py
+│       ├── display_service.py  # Status / AP / BG em PNG
+│       ├── media_service.py
+│       ├── network_service.py   # IP fixo, Wi‑Fi, hotspot AP
+│       ├── player_service.py    # mpv, playlists, standby
+│       ├── playlist_service.py
+│       ├── reset_service.py
+│       └── schedule_service.py
 ├── web/
-│   ├── templates/            # login, dashboard, mídias, rede, sistema
-│   └── static/               # style.css, app.js
-│
+│   ├── templates/              # login, dashboard, media, playlists, schedule, network, settings
+│   └── static/
 ├── config/
-│   ├── defaults.json         # Configurações padrão de fábrica
-│   └── identity.example.json # Modelo de identidade (copie para identity.json na 1ª execução / dev)
-│
-├── systemd/
-│   └── av-signage-player.service
-│
+│   ├── defaults.json
+│   └── identity.example.json
 ├── scripts/
-│   └── install.sh            # Script de instalação
-│
+│   ├── install.sh
+│   └── clock_overlay.lua       # overlay mpv
+├── docs/
+│   └── ARCHITECTURE.md         # Arquitetura, estado atual, plano Android RK3399/Scala
+├── systemd/
 └── requirements.txt
 ```
 
 ---
 
-## Instalação
+## Instalação (Raspberry Pi — protótipo)
 
 ### Requisitos
 
-- Raspberry Pi 5 com Raspberry Pi OS Lite 64-bit
-- Python 3.11+
-- mpv, Avahi, NetworkManager
+- Raspberry Pi 5, Raspberry Pi OS Lite 64-bit
+- Python 3.11+, mpv, Avahi, NetworkManager, fontes DejaVu
 
-### Instalação automática
+### Automática
 
 ```bash
-# Clonar o repositório
 git clone https://github.com/caiomaggiore/AV-Signage-Player.git /opt/av-signage
 cd /opt/av-signage
-
-# Executar o instalador
 sudo bash scripts/install.sh
 ```
 
-### Instalação manual
+### Primeira identidade (opcional)
+
+Se necessário criar `config/identity.json` a partir do exemplo:
 
 ```bash
-# Dependências do sistema
-sudo apt install -y python3 python3-venv mpv avahi-daemon network-manager \
-    fonts-dejavu-core libopenjp2-7
-
-# Ambiente virtual e dependências Python
-python3 -m venv /opt/av-signage/venv
-/opt/av-signage/venv/bin/pip install -r requirements.txt
-
-# Serviço systemd
-sudo cp systemd/av-signage-player.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable av-signage-player
-sudo systemctl start av-signage-player
+cp /opt/av-signage/config/identity.example.json /opt/av-signage/config/identity.json
+# Ajustar software_version se o equipamento já tiver device_id gerado
 ```
 
 ---
 
 ## Acesso
 
-Após a instalação, acesse pelo navegador:
+- `http://<hostname>.local:8080` (ex.: `signage-maggiore.local`)
+- `http://<IP>:8080`
 
-```
-http://signage-maggiore.local:8080
-```
-
-Ou pelo IP:
-
-```
-http://192.168.x.x:8080
-```
-
-No primeiro acesso, será solicitada a criação de uma senha.
+Primeiro acesso: definição de senha de administração.
 
 ---
 
-## API
+## API (visão geral)
 
-Todas as rotas sensíveis exigem autenticação via cookie de sessão.
+Todas as rotas que alteram estado ou leem dados sensíveis exigem **sessão autenticada** (cookie), salvo rota pública explícita (ex.: `/health`).
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/status` | Status completo do dispositivo |
-| GET | `/api/media` | Listar mídias locais |
-| POST | `/api/media/upload` | Upload de vídeo |
-| DELETE | `/api/media/{nome}` | Remover mídia |
-| POST | `/api/player/play` | Iniciar reprodução |
-| POST | `/api/player/stop` | Parar player |
-| POST | `/api/player/restart` | Reiniciar vídeo |
-| POST | `/api/player/loop` | Alterar modo loop |
-| POST | `/api/network/apply` | Aplicar configuração de rede |
-| POST | `/api/system/reboot` | Reiniciar dispositivo |
-| POST | `/api/system/reset` | Reset mantendo mídias |
-| POST | `/api/system/factory` | Factory reset completo |
+| Área | Exemplos de rotas |
+|------|-------------------|
+| Status / dispositivo | `GET /api/status`, `GET /api/device`, `GET /api/network` |
+| Rede | `POST /api/network/apply`, `POST /api/network/wifi/scan`, `POST /api/network/wifi/connect`, `POST /api/network/wifi/forget` |
+| Mídia | `GET/POST /api/media`, `POST /api/media/upload`, `DELETE /api/media/{filename}` |
+| Player | `POST /api/player/play`, `stop`, `restart`, `loop`, `next`, `previous`, `rotation`, `clock-position`, `standby`, `resume-schedule` |
+| Playlists | `GET/POST /api/playlists`, `PUT/DELETE /api/playlists/{id}`, `POST .../play` |
+| Agendas | `GET/POST /api/schedules`, `PUT/DELETE /api/schedules/{id}`, `POST /api/schedules/fallback` |
+| Sistema | `POST /api/system/reboot`, `reset`, `factory`; `GET/POST /api/system/time` |
+| Saúde | `GET /health` |
+
+Lista completa e contratos: código em `app/main.py`.
 
 ---
 
-## Desenvolvimento
-
-### Atualizar o Raspberry após mudanças
+## Desenvolvimento e deploy no Pi
 
 ```bash
-# No PC
-git add .
-git commit -m "descrição da mudança"
-git push
+# No PC: commit e push
+git push origin main
 
 # No Raspberry
-ssh admin@signage-maggiore.local
-cd /opt/av-signage
-git pull
-sudo systemctl restart av-signage-player
+cd /opt/av-signage && git pull && sudo systemctl restart av-signage-player
 ```
 
-### Comandos úteis no Raspberry
-
-```bash
-# Ver logs em tempo real
-journalctl -u av-signage-player -f
-
-# Status do serviço
-systemctl status av-signage-player
-
-# Reiniciar serviço
-sudo systemctl restart av-signage-player
-
-# Ver IP
-hostname -I
-
-# Testar mDNS
-ping signage-maggiore.local
-```
+Logs: `journalctl -u av-signage-player -f`
 
 ---
 
-## Fases do projeto
+## Fases do produto
 
 | Fase | Status | Descrição |
 |------|--------|-----------|
-| **Fase 1** | Completa | Player stand alone com interface web local |
-| Fase 2 | Planejada | Servidor central com dashboard e controle remoto |
-| Fase 3 | Planejada | Pacote .deb, imagem customizada e deploy em escala |
+| **Fase 1a** | **Em produção no Pi (v0.2.1)** | Player autônomo: web, mídia, playlists, agenda, rede, AP, HDMI |
+| **Fase 1b** | Planejada | **Port para Android RK3399 (Scala)** — ver arquitetura |
+| **Fase 2** | Planejada | Servidor central, pareamento, biblioteca e comandos remotos |
+| **Fase 3** | Planejada | Empacotamento em escala, imagens OTA, hardening |
+
+---
+
+## Roadmap de plataforma
+
+| Plataforma | Papel |
+|------------|--------|
+| **Raspberry Pi 5 + Linux** | Protótipo validado; referência de comportamento e API |
+| **Android + RK3399 (Scala)** | **Alvo oficial** de hardware e SO para produção |
+
+Detalhe técnico do plano Android: **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** (secção «Plano de arquitetura Android»).
 
 ---
 
