@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from app.version import SOFTWARE_VERSION
 from app.models import (
     DefaultsConfig,
     IdentityConfig,
@@ -120,13 +121,27 @@ class ConfigService:
     def _load_identity(self) -> IdentityConfig:
         data = _load_json(IDENTITY_FILE)
         identity = IdentityConfig(**data)
+        dirty = False
 
         if not identity.device_id or not identity.hardware_model:
             identity.device_id = _get_device_id()
             identity.hardware_model = _get_hardware_model()
             identity.created_at = datetime.now(timezone.utc).isoformat()
-            _save_json(IDENTITY_FILE, identity.model_dump())
+            dirty = True
             logger.info("Identidade gerada: %s", identity.device_id)
+
+        # Sempre alinhar com a versão do pacote em execução (identity.json herdava 0.1.0 após upgrades)
+        if identity.software_version != SOFTWARE_VERSION:
+            logger.info(
+                "software_version no manifesto atualizada: %s → %s",
+                identity.software_version,
+                SOFTWARE_VERSION,
+            )
+            identity.software_version = SOFTWARE_VERSION
+            dirty = True
+
+        if dirty:
+            _save_json(IDENTITY_FILE, identity.model_dump())
 
         return identity
 

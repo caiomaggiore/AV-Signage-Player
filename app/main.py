@@ -23,6 +23,7 @@ from app.services import playlist_service
 from app.services import schedule_service
 from app.services.player_service import player_service
 from app.services.display_service import display_service
+from app.version import SOFTWARE_VERSION
 
 _LOG_FILE = Path("/opt/av-signage/logs/app.log")
 _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -258,7 +259,7 @@ async def lifespan(app: FastAPI):
     _schedule_task = asyncio.create_task(_schedule_runner())
     _ap_task = asyncio.create_task(_ap_monitor_loop())
     _wifi_boot_task = asyncio.create_task(_wifi_boot_queue_loop())
-    logger.info("AV Signage Player v0.2.1 iniciado.")
+    logger.info("AV Signage Player v%s iniciado.", SOFTWARE_VERSION)
     yield
     if _schedule_task:
         _schedule_task.cancel()
@@ -269,7 +270,7 @@ async def lifespan(app: FastAPI):
     player_service.stop(show_status=False)
 
 
-app = FastAPI(title="AV Signage Player", version="0.2.1", lifespan=lifespan)
+app = FastAPI(title="AV Signage Player", version=SOFTWARE_VERSION, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -1477,7 +1478,7 @@ async def api_set_time(request: Request):
 
 @app.get("/health")
 async def health():
-    return JSONResponse({"status": "ok", "version": "0.2.1"})
+    return JSONResponse({"status": "ok", "version": SOFTWARE_VERSION})
 
 
 # ---------------------------------------------------------------------------

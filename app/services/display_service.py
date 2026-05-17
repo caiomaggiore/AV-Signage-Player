@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from app.version import SOFTWARE_VERSION
+
 logger = logging.getLogger(__name__)
 
 STATUS_IMAGE        = Path("/opt/av-signage/media/cache/status_screen.png")
@@ -451,7 +453,7 @@ class DisplayService:
         hostname: str,
         ip: str,
         pairing_code: str,
-        version: str = "0.2.1",
+        version: str = SOFTWARE_VERSION,
         fallback_mode: bool = False,
     ) -> None:
         self._kill()

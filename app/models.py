@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import List, Optional
 from pydantic import BaseModel, field_validator
 
+from app.version import SOFTWARE_VERSION
+
 
 # ---------------------------------------------------------------------------
 # Rede
@@ -109,7 +111,7 @@ class MergedConfig(BaseModel):
 class IdentityConfig(BaseModel):
     device_id: str = ""
     hardware_model: str = ""
-    software_version: str = "0.2.1"
+    software_version: str = SOFTWARE_VERSION
     created_at: str = ""
 
 
